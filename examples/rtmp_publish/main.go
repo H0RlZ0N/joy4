@@ -6,13 +6,13 @@ import (
 	"io/ioutil"
 	"time"
 
-	"github.com/nareix/joy4/av"
-	"github.com/nareix/joy4/av/avutil"
-	"github.com/nareix/joy4/av/pktque"
-	"github.com/nareix/joy4/codec/aacparser"
-	"github.com/nareix/joy4/format"
-	"github.com/nareix/joy4/format/rawmedia"
-	"github.com/nareix/joy4/format/rtmp"
+	"github.com/H0RlZ0N/joy4/av"
+	"github.com/H0RlZ0N/joy4/av/avutil"
+	"github.com/H0RlZ0N/joy4/av/pktque"
+	"github.com/H0RlZ0N/joy4/codec/aacparser"
+	"github.com/H0RlZ0N/joy4/format"
+	"github.com/H0RlZ0N/joy4/format/rawmedia"
+	"github.com/H0RlZ0N/joy4/format/rtmp"
 )
 
 func init() {
