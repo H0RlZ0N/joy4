@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"time"
 
 	"github.com/H0RlZ0N/joy4/av"
@@ -19,24 +20,19 @@ func init() {
 	format.RegisterAll()
 }
 
-func RtmpPushData(conn *rtmp.Conn, src av.Demuxer) (err error) {
-	streams, err := src.Streams()
-	if err != nil {
-		fmt.Printf("Get Streams err: %v\n", err)
-		return
-	}
-	fmt.Printf("Streams ok: %v\n", len(streams))
-	if err = conn.WriteHeader(streams); err != nil {
+func RtmpPushData(conn *rtmp.Conn, src *rawmedia.Demuxer) (err error) {
+	if err = conn.WriteStreamsHeader(src.GetStreams()); err != nil {
 		return
 	}
 
 	for {
 		var pkt av.Packet
 		pkt, err = src.ReadPacket()
+		fmt.Printf("Idx %v\n", pkt.Idx)
 		if pkt.Idx == 00 {
 			time.Sleep(time.Millisecond * 10)
 		} else {
-			time.Sleep(time.Millisecond * 1)
+			time.Sleep(time.Millisecond * 10)
 		}
 		if err != nil {
 			fmt.Printf("ReadPacket err: %v\n", err)
@@ -55,10 +51,10 @@ var startCode []byte = []byte{0x00, 0x00, 0x00, 0x01}
 
 func PushH264() {
 	demuxer := rawmedia.NewDemuxer()
+	demuxer.FillStreams()
 
 	// h264
 	data, err := ioutil.ReadFile("test.h264")
-	demuxer.AddVideoStreams()
 	if err != nil {
 		panic(err)
 	}
@@ -83,9 +79,13 @@ func PushH264() {
 					}
 
 					bcheck = true
-					demuxer.WriteMediaData(rawmedia.StreamTypeH264, data[pre:index], pts)
-					pts += 30000
-					time.Sleep(time.Millisecond * 10)
+					var packet rawmedia.Packet
+					packet.Datatype = rawmedia.StreamTypeH264
+					packet.Data = data[pre:index]
+					packet.Pts = pts
+					demuxer.WriteMediaData(packet)
+					pts += 100000
+					time.Sleep(time.Millisecond * 100)
 
 					pre = index
 					index += 4
@@ -103,7 +103,6 @@ func PushH264() {
 	apre := 0
 	aindex := 0
 	audiodata, err := ioutil.ReadFile("test.aac")
-	demuxer.AddAudioStreams()
 	go func() {
 		var audiopts uint64 = 0
 		for {
@@ -113,9 +112,13 @@ func PushH264() {
 				return
 			}
 			aindex = apre + framelen
-			demuxer.WriteMediaData(rawmedia.StreamTypeAdtsAAC, audiodata[apre:aindex], audiopts)
-			audiopts += 30000
-			time.Sleep(time.Millisecond * 1)
+			var packet rawmedia.Packet
+			packet.Datatype = rawmedia.StreamTypeAdtsAAC
+			packet.Data = audiodata[apre : apre+framelen]
+			packet.Pts = audiopts
+			demuxer.WriteMediaData(packet)
+			audiopts += 10000
+			time.Sleep(time.Millisecond * 10)
 			apre = aindex
 			if apre+7 >= len(audiodata) {
 				break
@@ -134,6 +137,98 @@ func PushH264() {
 	// send data
 	RtmpPushData(conn, demuxer)
 
+}
+
+// ffplay rtmp://127.0.0.1:1935/live/test
+func rtmpclienttest() {
+	rtmpClient := rtmp.NewRtmpClient()
+	rtmpClient.Init("rtmp://127.0.0.1:1935/live/test")
+
+	// h264
+	data, err := ioutil.ReadFile("test.h264")
+	if err != nil {
+		panic(err)
+	}
+	bcheck := true
+	pre := 0
+	index := 0
+	var pts uint64 = 0
+	go func() {
+		for {
+			if bytes.Compare(data[index:index+4], startCode) == 0 {
+				if index > pre {
+					if bcheck {
+						preNaluType := data[pre+4] & 0x1F
+						naluType := data[index+4] & 0x1F
+						if preNaluType == 7 {
+							if naluType != 7 && naluType != 8 {
+								bcheck = false
+							}
+							index += 4
+							continue
+						}
+					}
+
+					bcheck = true
+					var packet rawmedia.Packet
+					packet.Datatype = rawmedia.StreamTypeH264
+					packet.Data = data[pre:index]
+					packet.Pts = pts
+					rtmpClient.WritePacket(packet)
+					pts += 60000
+					time.Sleep(time.Millisecond * 30)
+
+					pre = index
+					index += 4
+					continue
+				}
+			}
+			index++
+			if index+4 >= len(data) {
+				break
+			}
+		}
+	}()
+
+	// aac
+	apre := 0
+	aindex := 0
+	audiodata, err := ioutil.ReadFile("test.aac")
+	go func() {
+		var audiopts uint64 = 0
+		for {
+			var _, framelen int
+			if _, _, framelen, _, err = aacparser.ParseADTSHeader(audiodata[apre : apre+7]); err != nil {
+				fmt.Printf("ParseADTSHeader err: %v\n", err)
+				return
+			}
+			aindex = apre + framelen
+			var packet rawmedia.Packet
+			packet.Datatype = rawmedia.StreamTypeAdtsAAC
+			packet.Data = audiodata[apre : apre+framelen]
+			packet.Pts = audiopts
+			rtmpClient.WritePacket(packet)
+			audiopts += 20000
+			time.Sleep(time.Millisecond * 10)
+			apre = aindex
+			if apre+7 >= len(audiodata) {
+				break
+			}
+		}
+	}()
+
+	go func() {
+		rtmpClient.Serve()
+	}()
+
+	time.Sleep(time.Millisecond * 2000)
+	rtmpClient.StartPublish()
+
+	time.Sleep(time.Second * 660)
+
+	log.Printf("main close rtmp client\n")
+	rtmpClient.StopPublish()
+	rtmpClient.Close()
 }
 
 // as same as: ffmpeg -re -i projectindex.flv -c copy -f flv rtmp://localhost:1936/app/publish
@@ -164,6 +259,7 @@ func flv2rtmp() {
 }
 
 func main() {
-	PushH264()
+	//PushH264()
 	//ts2rtmp()
+	rtmpclienttest()
 }

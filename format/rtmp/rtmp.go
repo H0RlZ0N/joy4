@@ -8,16 +8,18 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"github.com/H0RlZ0N/joy4/av"
-	"github.com/H0RlZ0N/joy4/av/avutil"
-	"github.com/H0RlZ0N/joy4/format/flv"
-	"github.com/H0RlZ0N/joy4/format/flv/flvio"
-	"github.com/H0RlZ0N/joy4/utils/bits/pio"
 	"io"
 	"net"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/H0RlZ0N/joy4/av"
+	"github.com/H0RlZ0N/joy4/av/avutil"
+	"github.com/H0RlZ0N/joy4/format/flv"
+	"github.com/H0RlZ0N/joy4/format/flv/flvio"
+	"github.com/H0RlZ0N/joy4/format/rawmedia"
+	"github.com/H0RlZ0N/joy4/utils/bits/pio"
 )
 
 var Debug bool
@@ -140,6 +142,7 @@ type Conn struct {
 
 	prober  *flv.Prober
 	streams []av.CodecData
+	stream  []*rawmedia.Stream
 
 	txbytes uint64
 	rxbytes uint64
@@ -857,7 +860,11 @@ func (self *Conn) WritePacket(pkt av.Packet) (err error) {
 		return
 	}
 
-	stream := self.streams[pkt.Idx]
+	if self.stream[pkt.Idx].CodecData == nil {
+		return fmt.Errorf("CodecData idx %v is nil", pkt.Idx)
+	}
+
+	stream := self.stream[pkt.Idx].CodecData
 	tag, timestamp := flv.PacketToTag(pkt, stream)
 
 	if Debug {
@@ -876,6 +883,18 @@ func (self *Conn) WriteTrailer() (err error) {
 		return
 	}
 	return
+}
+
+func (self *Conn) WriteStreamsHeader(streams []*rawmedia.Stream) (err error) {
+	self.stream = streams
+	var Codecstreams []av.CodecData
+	for _, stream := range self.stream {
+		if stream.CodecData != nil {
+			Codecstreams = append(Codecstreams, stream.CodecData)
+		}
+	}
+	err = self.WriteHeader(Codecstreams)
+	return err
 }
 
 func (self *Conn) WriteHeader(streams []av.CodecData) (err error) {
