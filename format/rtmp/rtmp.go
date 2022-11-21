@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/url"
 	"strings"
@@ -268,7 +269,12 @@ func (self *Conn) RxBytes() uint64 {
 }
 
 func (self *Conn) Close() (err error) {
-	return self.netconn.Close()
+	if self.netconn != nil {
+		log.Printf("close rtmp netconn\n")
+		err = self.netconn.Close()
+		self.netconn = nil
+	}
+	return
 }
 
 func (self *Conn) pollCommand() (err error) {
@@ -1003,6 +1009,9 @@ func (self *Conn) writeAMF0Msg(msgtypeid uint8, csid, msgsid uint32, args ...int
 }
 
 func (self *Conn) writeAVTag(tag flvio.Tag, ts int32) (err error) {
+	if self.netconn == nil {
+		return fmt.Errorf("netconn is nil")
+	}
 	var msgtypeid uint8
 	var csid uint32
 	var data []byte
@@ -1033,6 +1042,10 @@ func (self *Conn) writeAVTag(tag flvio.Tag, ts int32) (err error) {
 		if err = self.writeSetChunkSize(n + len(data)); err != nil {
 			return
 		}
+	}
+
+	if b == nil || data == nil {
+		return
 	}
 
 	if _, err = self.bufw.Write(b[:n]); err != nil {

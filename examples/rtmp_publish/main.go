@@ -143,6 +143,7 @@ func PushH264() {
 func rtmpclienttest() {
 	rtmpClient := rtmp.NewRtmpClient()
 	rtmpClient.Init("rtmp://127.0.0.1:1935/live/test")
+	rtmpClient.SetMediaDir(rawmedia.MEDIADIR_VIDEO | rawmedia.MEDIADIR_AUDIOSEND)
 
 	// h264
 	data, err := ioutil.ReadFile("test.h264")
@@ -221,7 +222,6 @@ func rtmpclienttest() {
 		rtmpClient.Serve()
 	}()
 
-	time.Sleep(time.Millisecond * 2000)
 	rtmpClient.StartPublish()
 
 	time.Sleep(time.Second * 660)

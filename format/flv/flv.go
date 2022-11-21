@@ -3,6 +3,9 @@ package flv
 import (
 	"bufio"
 	"fmt"
+	"io"
+	"log"
+
 	"github.com/H0RlZ0N/joy4/av"
 	"github.com/H0RlZ0N/joy4/av/avutil"
 	"github.com/H0RlZ0N/joy4/codec"
@@ -11,7 +14,6 @@ import (
 	"github.com/H0RlZ0N/joy4/codec/h264parser"
 	"github.com/H0RlZ0N/joy4/format/flv/flvio"
 	"github.com/H0RlZ0N/joy4/utils/bits/pio"
-	"io"
 )
 
 var MaxProbePacketCount = 20
@@ -38,6 +40,8 @@ func NewMetadataByStreams(streams []av.CodecData) (metadata flvio.AMFMap, err er
 			metadata["displayWidth"] = stream.Width()
 			metadata["displayHeight"] = stream.Height()
 
+			log.Printf("flv video %v x %v\n", stream.Width(), stream.Height())
+
 		case typ.IsAudio():
 			stream := _stream.(av.AudioCodecData)
 			switch typ {
@@ -53,6 +57,8 @@ func NewMetadataByStreams(streams []av.CodecData) (metadata flvio.AMFMap, err er
 			}
 
 			metadata["audiosamplerate"] = stream.SampleRate()
+
+			log.Printf("flv audio %v\n", stream.SampleRate())
 		}
 	}
 

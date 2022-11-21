@@ -2,6 +2,7 @@ package rawmedia
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -130,10 +131,12 @@ func (self *Stream) PackMediaData(payload []byte, pts uint64) (n int, err error)
 			}
 			if self.CodecData == nil {
 				if self.CodecData, err = aacparser.NewCodecDataFromMPEG4AudioConfig(config); err != nil {
+					log.Printf("Parse audio CodecData failed: %v\n", err)
 					return
 				}
+				log.Printf("Parse audio CodecData ok\n")
+				self.BReady = true
 			}
-			self.BReady = true
 			self.addPacket(payload[hdrlen:framelen], true, pts)
 			n++
 			payload = payload[framelen:]
@@ -168,8 +171,10 @@ func (self *Stream) PackMediaData(payload []byte, pts uint64) (n int, err error)
 		}
 		if self.CodecData == nil && len(sps) > 0 && len(pps) > 0 {
 			if self.CodecData, err = h264parser.NewCodecDataFromSPSAndPPS(sps, pps); err != nil {
+				log.Printf("Parse video CodecData failed: %v\n", err)
 				return
 			}
+			log.Printf("Parse video CodecData ok\n")
 			self.BReady = true
 		}
 	}

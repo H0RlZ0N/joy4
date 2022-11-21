@@ -14,8 +14,9 @@ type RtmpClient struct {
 	ctx        context.Context
 	cancelfunc context.CancelFunc
 
-	conn    *Conn
-	demuxer *rawmedia.Demuxer
+	conn     *Conn
+	demuxer  *rawmedia.Demuxer
+	mediaDir rawmedia.MediaDir
 
 	pushSign   bool
 	initHeader bool
@@ -51,6 +52,10 @@ func (rc *RtmpClient) Close() {
 		rc.conn.Close()
 		rc.conn = nil
 	}
+}
+
+func (rc *RtmpClient) SetMediaDir(mediaDir rawmedia.MediaDir) {
+	rc.mediaDir = mediaDir
 }
 
 func (rc *RtmpClient) WritePacket(packet rawmedia.Packet) error {
@@ -89,23 +94,22 @@ func (rc *RtmpClient) Serve() {
 		select {
 		case <-rc.ctx.Done():
 			log.Printf("Done return\n")
-			return
+			break
 		case <-tick.C:
 			// 超过60s没有读出数据包，关闭连接
 			tick.Stop()
 			log.Printf("timeout return\n")
-			return
+			break
 		default:
 			var pkt av.Packet
 			pkt, err = rc.demuxer.ReadPacket()
 			if err != nil {
-				//log.Printf("ReadPacket err: %v\n", err)
 				tick.Reset(time.Second * 60)
 			} else {
 				tick.Stop()
 				if err = rc.Sendpacket(pkt); err != nil {
 					log.Printf("Sendpacket error return\n")
-					return
+					break
 				}
 			}
 		}
@@ -121,17 +125,25 @@ func (rc *RtmpClient) Sendpacket(pkt av.Packet) (err error) {
 		return fmt.Errorf("rtmp disconnect")
 	}
 
+	// 视频sps，pps或音频adts未填充，等待填充后再开始传输
+	streams := rc.demuxer.GetStreams()
+	for _, stream := range streams {
+		if rc.mediaDir&rawmedia.MEDIADIR_VIDEO != 0 && stream.StreamType == rawmedia.StreamTypeH264 {
+			if stream.CodecData == nil {
+				return nil
+			}
+		} else if rc.mediaDir&rawmedia.MEDIADIR_AUDIOSEND != 0 && stream.StreamType == rawmedia.StreamTypeAdtsAAC {
+			if stream.CodecData == nil {
+				return nil
+			}
+		}
+	}
+
 	if !rc.initHeader {
-		if err = rc.conn.WriteStreamsHeader(rc.demuxer.GetStreams()); err != nil {
+		if err = rc.conn.WriteStreamsHeader(streams); err != nil {
 			return
 		}
 		rc.initHeader = true
-	}
-
-	// 视频sps，pps或音频adts未填充，等待填充后再开始传输
-	streams := rc.demuxer.GetStreams()
-	if streams[pkt.Idx].CodecData == nil {
-		return nil
 	}
 
 	if err = rc.conn.WritePacket(pkt); err != nil {
