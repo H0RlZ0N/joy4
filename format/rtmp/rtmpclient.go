@@ -93,20 +93,18 @@ func (rc *RtmpClient) Serve() {
 	for {
 		select {
 		case <-rc.ctx.Done():
-			log.Printf("Done return\n")
-			break
+			return
 		case <-tick.C:
 			// 超过60s没有读出数据包，关闭连接
 			tick.Stop()
 			log.Printf("timeout return\n")
-			break
+			return
 		default:
 			var pkt av.Packet
 			pkt, err = rc.demuxer.ReadPacket()
 			if err != nil {
-				tick.Reset(time.Second * 60)
 			} else {
-				tick.Stop()
+				tick.Reset(time.Second * 60)
 				if err = rc.Sendpacket(pkt); err != nil {
 					log.Printf("Sendpacket error return\n")
 					break
