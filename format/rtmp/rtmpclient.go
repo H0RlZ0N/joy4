@@ -80,14 +80,13 @@ func (rc *RtmpClient) StopPublish() {
 
 func (rc *RtmpClient) Serve() {
 	var err error
-	tick := time.NewTicker(time.Second * 60)
+	tick := time.NewTicker(time.Second * 120)
 	defer func() {
 		log.Printf("defer close rtmp client\n")
 		if tick != nil {
 			tick.Stop()
 			tick = nil
 		}
-		rc.Close()
 	}()
 
 	for {
