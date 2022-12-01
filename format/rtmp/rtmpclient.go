@@ -99,7 +99,7 @@ func (rc *RtmpClient) Serve() {
 			log.Printf("timeout return\n")
 			return
 		default:
-			time.Sleep(time.Millisecond)
+			time.Sleep(time.Nanosecond)
 			var pkt av.Packet
 			pkt, err = rc.demuxer.ReadPacket()
 			if err != nil {
