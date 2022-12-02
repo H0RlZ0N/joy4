@@ -15,7 +15,7 @@ import (
 type Packet struct {
 	Datatype DataType
 	Data     []byte
-	Pts      uint64
+	Pts      uint64 // Microsecond
 }
 
 type Stream struct {
