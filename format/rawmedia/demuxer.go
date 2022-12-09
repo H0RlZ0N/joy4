@@ -3,7 +3,7 @@ package rawmedia
 import (
 	"fmt"
 	"log"
-	"os"
+	"sync"
 	"time"
 
 	"github.com/H0RlZ0N/joy4/av"
@@ -28,9 +28,10 @@ type Stream struct {
 }
 
 type Demuxer struct {
-	pkts    []av.Packet
-	streams []*Stream
-	stage   int
+	RwLocker sync.RWMutex
+	pkts     []*av.Packet
+	streams  []*Stream
+	stage    int
 }
 
 type MediaDir int32
@@ -96,11 +97,12 @@ func (self *Demuxer) AddAudioStreams() {
 }
 
 func (self *Demuxer) ReadPacket() (pkt av.Packet, err error) {
-
+	self.RwLocker.Lock()
+	defer self.RwLocker.Unlock()
 	if len(self.pkts) == 0 {
 		return pkt, fmt.Errorf("EOF packet")
 	}
-	pkt = self.pkts[0]
+	pkt = *self.pkts[0]
 	self.pkts = self.pkts[1:]
 	return
 }
@@ -108,17 +110,16 @@ func (self *Demuxer) ReadPacket() (pkt av.Packet, err error) {
 var timeStamp time.Duration = 0
 
 func (self *Stream) addPacket(payload []byte, iskeyframe bool, pts uint64) {
-	demuxer := self.demuxer
 	pkt := av.Packet{
 		Idx:        int8(self.Idx),
 		IsKeyFrame: iskeyframe,
 		Time:       time.Duration(pts) * time.Microsecond,
 		Data:       payload,
 	}
-	demuxer.pkts = append(demuxer.pkts, pkt)
+	self.demuxer.RwLocker.Lock()
+	defer self.demuxer.RwLocker.Unlock()
+	self.demuxer.pkts = append(self.demuxer.pkts, &pkt)
 }
-
-var h264fl *os.File = nil
 
 func (self *Stream) PackMediaData(payload []byte, pts uint64) (n int, err error) {
 	switch self.StreamType {

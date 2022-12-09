@@ -47,7 +47,6 @@ func (rc *RtmpClient) Close() {
 		rc.cancelfunc = nil
 	}
 	rc.pushSign = false
-	rc.initHeader = false
 	if rc.conn != nil {
 		rc.conn.Close()
 		rc.conn = nil
@@ -80,36 +79,22 @@ func (rc *RtmpClient) StopPublish() {
 
 func (rc *RtmpClient) Serve() {
 	var err error
-	tick := time.NewTicker(time.Second * 120)
-	defer func() {
-		log.Printf("defer close rtmp client\n")
-		if tick != nil {
-			tick.Stop()
-			tick = nil
-		}
-	}()
 
 	for {
 		select {
 		case <-rc.ctx.Done():
 			return
-		case <-tick.C:
-			// 超过60s没有读出数据包，关闭连接
-			tick.Stop()
-			log.Printf("timeout return\n")
-			return
 		default:
-			time.Sleep(time.Microsecond)
 			var pkt av.Packet
 			pkt, err = rc.demuxer.ReadPacket()
 			if err != nil {
 			} else {
-				tick.Reset(time.Second * 60)
 				if err = rc.Sendpacket(pkt); err != nil {
 					log.Printf("Sendpacket error return\n")
 					break
 				}
 			}
+			time.Sleep(time.Nanosecond)
 		}
 	}
 }
@@ -138,6 +123,7 @@ func (rc *RtmpClient) Sendpacket(pkt av.Packet) (err error) {
 	}
 
 	if !rc.initHeader {
+		log.Printf("WriteStreamsHeader\n")
 		if err = rc.conn.WriteStreamsHeader(streams); err != nil {
 			return
 		}

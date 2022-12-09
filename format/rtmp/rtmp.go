@@ -866,19 +866,23 @@ func (self *Conn) WritePacket(pkt av.Packet) (err error) {
 		return
 	}
 
-	if self.stream[pkt.Idx].CodecData == nil {
-		return fmt.Errorf("CodecData idx %v is nil", pkt.Idx)
-	}
+	for _, streams := range self.stream {
+		if int(pkt.Idx) == streams.Idx {
+			if streams.CodecData == nil {
+				return fmt.Errorf("CodecData idx %v is nil", pkt.Idx)
+			} else {
+				stream := streams.CodecData
+				tag, timestamp := flv.PacketToTag(pkt, stream)
 
-	stream := self.stream[pkt.Idx].CodecData
-	tag, timestamp := flv.PacketToTag(pkt, stream)
+				if Debug {
+					fmt.Println("rtmp: WritePacket", pkt.Idx, pkt.Time, pkt.CompositionTime)
+				}
 
-	if Debug {
-		fmt.Println("rtmp: WritePacket", pkt.Idx, pkt.Time, pkt.CompositionTime)
-	}
-
-	if err = self.writeAVTag(tag, int32(timestamp)); err != nil {
-		return
+				if err = self.writeAVTag(tag, int32(timestamp)); err != nil {
+					return
+				}
+			}
+		}
 	}
 
 	return
@@ -900,7 +904,7 @@ func (self *Conn) WriteStreamsHeader(streams []*rawmedia.Stream) (err error) {
 		}
 	}
 	err = self.WriteHeader(Codecstreams)
-	return err
+	return nil
 }
 
 func (self *Conn) WriteHeader(streams []av.CodecData) (err error) {
