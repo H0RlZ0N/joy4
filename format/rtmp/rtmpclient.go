@@ -20,19 +20,28 @@ type RtmpClient struct {
 
 	pushSign   bool
 	initHeader bool
+
+	onEvent func(eCode EventCode)
 }
+
+type EventCode int32
+
+const (
+	RTMP_EVENT_CLOSED EventCode = -1
+)
 
 func NewRtmpClient() *RtmpClient {
 	return &RtmpClient{}
 }
 
-func (rc *RtmpClient) Init(url string) error {
+func (rc *RtmpClient) Init(url string, OnEvent func(eCode EventCode)) error {
 	var err error
 	rc.ctx, rc.cancelfunc = context.WithCancel(context.Background())
 	rc.conn, err = Dial(url)
 	if err != nil {
 		return err
 	}
+	rc.onEvent = OnEvent
 	rc.demuxer = rawmedia.NewDemuxer()
 	rc.demuxer.FillStreams()
 	rc.pushSign = false
@@ -51,6 +60,7 @@ func (rc *RtmpClient) Close() {
 		rc.conn.Close()
 		rc.conn = nil
 	}
+	rc.onEvent = nil
 }
 
 func (rc *RtmpClient) SetMediaDir(mediaDir rawmedia.MediaDir) {
@@ -79,19 +89,36 @@ func (rc *RtmpClient) StopPublish() {
 
 func (rc *RtmpClient) Serve() {
 	var err error
+	tick := time.NewTicker(time.Second * 60)
+	defer func() {
+		log.Printf("defer close rtmp client\n")
+		if rc.onEvent != nil {
+			rc.onEvent(RTMP_EVENT_CLOSED)
+		}
+		if tick != nil {
+			tick.Stop()
+			tick = nil
+		}
+	}()
 
 	for {
 		select {
 		case <-rc.ctx.Done():
+			return
+		case <-tick.C:
+			// 超过60s没有读出数据包，关闭连接
+			tick.Stop()
+			log.Printf("ReadPacket timeout\n")
 			return
 		default:
 			var pkt av.Packet
 			pkt, err = rc.demuxer.ReadPacket()
 			if err != nil {
 			} else {
+				tick.Reset(time.Second * 60)
 				if err = rc.Sendpacket(pkt); err != nil {
 					log.Printf("Sendpacket error return\n")
-					break
+					return
 				}
 			}
 			time.Sleep(time.Nanosecond)
