@@ -2,10 +2,11 @@ package flvio
 
 import (
 	"fmt"
-	"github.com/H0RlZ0N/joy4/av"
-	"github.com/H0RlZ0N/joy4/utils/bits/pio"
 	"io"
 	"time"
+
+	"github.com/H0RlZ0N/joy4/av"
+	"github.com/H0RlZ0N/joy4/utils/bits/pio"
 )
 
 func TsToTime(ts int32) time.Duration {
@@ -58,6 +59,7 @@ const (
 	FRAME_INTER = 2
 
 	VIDEO_H264 = 7
+	VIDEO_H265 = 12
 )
 
 type Tag struct {
