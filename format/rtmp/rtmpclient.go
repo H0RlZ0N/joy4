@@ -34,7 +34,7 @@ func NewRtmpClient() *RtmpClient {
 	return &RtmpClient{}
 }
 
-func (rc *RtmpClient) Init(url string, OnEvent func(eCode EventCode)) error {
+func (rc *RtmpClient) Init(url string, streams []*rawmedia.Stream, OnEvent func(eCode EventCode)) error {
 	var err error
 	rc.ctx, rc.cancelfunc = context.WithCancel(context.Background())
 	rc.conn, err = Dial(url)
@@ -43,7 +43,10 @@ func (rc *RtmpClient) Init(url string, OnEvent func(eCode EventCode)) error {
 	}
 	rc.onEvent = OnEvent
 	rc.demuxer = rawmedia.NewDemuxer()
-	rc.demuxer.FillStreams()
+	err = rc.demuxer.AddStreams(streams)
+	if err != nil {
+		return err
+	}
 	rc.pushSign = false
 
 	return nil
@@ -117,7 +120,7 @@ func (rc *RtmpClient) Serve() {
 			} else {
 				tick.Reset(time.Second * 60)
 				if err = rc.Sendpacket(pkt); err != nil {
-					log.Printf("Sendpacket error return\n")
+					log.Printf("Sendpacket error %v\n", err.Error())
 					return
 				}
 			}
@@ -138,9 +141,11 @@ func (rc *RtmpClient) Sendpacket(pkt av.Packet) (err error) {
 	// 视频sps，pps或音频adts未填充，等待填充后再开始传输
 	streams := rc.demuxer.GetStreams()
 	for _, stream := range streams {
-		if rc.mediaDir&rawmedia.MEDIADIR_VIDEO != 0 && stream.StreamType == rawmedia.StreamTypeH264 {
-			if stream.CodecData == nil {
-				return nil
+		if rc.mediaDir&rawmedia.MEDIADIR_VIDEO != 0 {
+			if stream.StreamType == rawmedia.StreamTypeH264 || stream.StreamType == rawmedia.StreamTypeH265 {
+				if stream.CodecData == nil {
+					return nil
+				}
 			}
 		} else if rc.mediaDir&rawmedia.MEDIADIR_AUDIOSEND != 0 && stream.StreamType == rawmedia.StreamTypeAdtsAAC {
 			if stream.CodecData == nil {

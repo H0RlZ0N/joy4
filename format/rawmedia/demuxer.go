@@ -9,6 +9,7 @@ import (
 	"github.com/H0RlZ0N/joy4/av"
 	"github.com/H0RlZ0N/joy4/codec/aacparser"
 	"github.com/H0RlZ0N/joy4/codec/h264parser"
+	"github.com/H0RlZ0N/joy4/codec/h265parser"
 	"github.com/H0RlZ0N/joy4/utils/bits/pio"
 )
 
@@ -23,7 +24,7 @@ type Stream struct {
 	demuxer *Demuxer
 
 	StreamType DataType
-	Idx        int
+	Idx        int // 0-video 1-audio
 	BReady     bool
 }
 
@@ -33,6 +34,11 @@ type Demuxer struct {
 	streams  []*Stream
 	stage    int
 }
+
+const (
+	IDX_VIDEO int = 0
+	IDX_AUDIO int = 1
+)
 
 type MediaDir int32
 
@@ -45,8 +51,11 @@ const (
 type DataType int32
 
 const (
+	StreamTypeUnknown DataType = -1
 	StreamTypeH264    DataType = 0
-	StreamTypeAdtsAAC DataType = 1
+	StreamTypeH265    DataType = 1
+	StreamTypeAdtsAAC DataType = 2
+	StreamTypePCMA    DataType = 3
 )
 
 func NewDemuxer() *Demuxer {
@@ -71,6 +80,18 @@ func (self *Demuxer) GetStreams() []*Stream {
 	return self.streams
 }
 
+func (self *Demuxer) AddStreams(streams []*Stream) error {
+	for _, stream := range streams {
+		if stream.StreamType != StreamTypeH264 && stream.StreamType != StreamTypeH265 && stream.StreamType != StreamTypeAdtsAAC {
+			return fmt.Errorf("Unsupport stream type: %v", stream.StreamType)
+		}
+		stream.demuxer = self
+		self.streams = append(self.streams, stream)
+	}
+
+	return nil
+}
+
 func (self *Demuxer) FillStreams() {
 	self.AddVideoStreams()
 	self.AddAudioStreams()
@@ -78,7 +99,7 @@ func (self *Demuxer) FillStreams() {
 
 func (self *Demuxer) AddVideoStreams() {
 	stream := &Stream{}
-	stream.Idx = 0
+	stream.Idx = IDX_VIDEO
 	stream.demuxer = self
 	stream.StreamType = StreamTypeH264
 	stream.BReady = false
@@ -88,7 +109,7 @@ func (self *Demuxer) AddVideoStreams() {
 
 func (self *Demuxer) AddAudioStreams() {
 	stream := &Stream{}
-	stream.Idx = 1
+	stream.Idx = IDX_AUDIO
 	stream.demuxer = self
 	stream.StreamType = StreamTypeAdtsAAC
 	stream.BReady = false
@@ -175,7 +196,45 @@ func (self *Stream) PackMediaData(payload []byte, pts uint64) (n int, err error)
 				log.Printf("Parse video CodecData failed: %v\n", err)
 				return
 			}
-			log.Printf("Parse video CodecData ok\n")
+			log.Printf("Parse h264 video CodecData ok\n")
+			self.BReady = true
+		}
+
+	case StreamTypeH265:
+		nalus, _ := h265parser.SplitNALUs(payload)
+		var sps, pps, vps []byte
+		for _, nalu := range nalus {
+			if len(nalu) > 0 {
+				var iskeyframe bool = false
+				naltype := (nalu[0] >> 1) & 0x3f
+				if naltype == 32 || naltype == 33 || naltype == 34 || naltype == 19 || naltype == 20 || naltype == 21 {
+					iskeyframe = true
+				}
+				switch {
+				case naltype == 33:
+					sps = nalu
+				case naltype == 34:
+					pps = nalu
+				case naltype == 32:
+					vps = nalu
+				case h265parser.IsDataNALU(nalu):
+					// raw nalu to avcc
+					if self.CodecData != nil {
+						b := make([]byte, 4+len(nalu))
+						pio.PutU32BE(b[0:4], uint32(len(nalu)))
+						copy(b[4:], nalu)
+						self.addPacket(b, iskeyframe, pts)
+						n++
+					}
+				}
+			}
+		}
+		if self.CodecData == nil && len(sps) > 0 && len(pps) > 0 {
+			if self.CodecData, err = h265parser.NewCodecDataFromVPSAndSPSAndPPS(vps, sps, pps); err != nil {
+				log.Printf("Parse video CodecData failed: %v\n", err)
+				return
+			}
+			log.Printf("Parse hevc video CodecData ok\n")
 			self.BReady = true
 		}
 	}

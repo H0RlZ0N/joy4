@@ -43,7 +43,7 @@ func NewMetadataByStreams(streams []av.CodecData) (metadata flvio.AMFMap, err er
 			metadata["displayWidth"] = stream.Width()
 			metadata["displayHeight"] = stream.Height()
 
-			log.Printf("flv video %v x %v\n", stream.Width(), stream.Height())
+			log.Printf("flv %v video %v x %v\n", typ.String(), stream.Width(), stream.Height())
 
 		case typ.IsAudio():
 			stream := _stream.(av.AudioCodecData)
@@ -61,7 +61,7 @@ func NewMetadataByStreams(streams []av.CodecData) (metadata flvio.AMFMap, err er
 
 			metadata["audiosamplerate"] = stream.SampleRate()
 
-			log.Printf("flv audio %v\n", stream.SampleRate())
+			log.Printf("flv %v audio %v\n", typ.String(), stream.SampleRate())
 		}
 	}
 

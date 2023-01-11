@@ -904,7 +904,7 @@ func (self *Conn) WriteStreamsHeader(streams []*rawmedia.Stream) (err error) {
 		}
 	}
 	err = self.WriteHeader(Codecstreams)
-	return nil
+	return err
 }
 
 func (self *Conn) WriteHeader(streams []av.CodecData) (err error) {

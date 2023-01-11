@@ -118,8 +118,8 @@ var (
 )
 
 func IsDataNALU(b []byte) bool {
-	typ := b[0] & 0x1f
-	return typ >= 1 && typ <= 5
+	typ := (b[0] >> 1) & 0x3f
+	return typ >= 0 && typ <= 23
 }
 
 var StartCodeBytes = []byte{0, 0, 1}
