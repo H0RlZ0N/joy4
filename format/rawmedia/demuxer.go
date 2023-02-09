@@ -56,6 +56,7 @@ const (
 	StreamTypeH265    DataType = 1
 	StreamTypeAdtsAAC DataType = 2
 	StreamTypePCMA    DataType = 3
+	StreamTypeG726    DataType = 4
 )
 
 func NewDemuxer() *Demuxer {

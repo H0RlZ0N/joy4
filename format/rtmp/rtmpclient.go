@@ -104,6 +104,7 @@ func (rc *RtmpClient) Serve() {
 		}
 	}()
 
+	t := time.NewTimer(5 * time.Millisecond)
 	for {
 		select {
 		case <-rc.ctx.Done():
@@ -113,7 +114,7 @@ func (rc *RtmpClient) Serve() {
 			tick.Stop()
 			log.Printf("ReadPacket timeout\n")
 			return
-		default:
+		case <-t.C:
 			var pkt av.Packet
 			pkt, err = rc.demuxer.ReadPacket()
 			if err != nil {
@@ -124,7 +125,7 @@ func (rc *RtmpClient) Serve() {
 					return
 				}
 			}
-			time.Sleep(time.Nanosecond)
+			t.Reset(5 * time.Millisecond)
 		}
 	}
 }
@@ -168,4 +169,12 @@ func (rc *RtmpClient) Sendpacket(pkt av.Packet) (err error) {
 		return
 	}
 	return nil
+}
+
+func GetSupportCodec() []rawmedia.DataType {
+	var DataTypeArray []rawmedia.DataType
+	DataTypeArray = append(DataTypeArray, rawmedia.StreamTypeH264)
+	DataTypeArray = append(DataTypeArray, rawmedia.StreamTypeH265)
+	DataTypeArray = append(DataTypeArray, rawmedia.StreamTypeAdtsAAC)
+	return DataTypeArray
 }
