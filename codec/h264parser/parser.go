@@ -3,6 +3,7 @@ package h264parser
 import (
 	"bytes"
 	"fmt"
+
 	"github.com/H0RlZ0N/joy4/av"
 	"github.com/H0RlZ0N/joy4/utils/bits"
 	"github.com/H0RlZ0N/joy4/utils/bits/pio"
@@ -545,6 +546,10 @@ func NewCodecDataFromAVCDecoderConfRecord(record []byte) (self CodecData, err er
 		return
 	}
 	return
+}
+
+func NewCodecData() (self CodecData) {
+	return CodecData{}
 }
 
 func NewCodecDataFromSPSAndPPS(sps, pps []byte) (self CodecData, err error) {

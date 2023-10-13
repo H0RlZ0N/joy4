@@ -32,7 +32,6 @@ type Demuxer struct {
 	RwLocker sync.RWMutex
 	pkts     []*av.Packet
 	streams  []*Stream
-	stage    int
 }
 
 const (
@@ -151,6 +150,9 @@ func (self *Stream) PackMediaData(payload []byte, pts uint64) (n int, err error)
 			var hdrlen, framelen int
 			if config, hdrlen, framelen, _, err = aacparser.ParseADTSHeader(payload); err != nil {
 				return
+			}
+			if framelen > len(payload) || framelen <= 0 || hdrlen <= 0 {
+				continue
 			}
 			if self.CodecData == nil {
 				if self.CodecData, err = aacparser.NewCodecDataFromMPEG4AudioConfig(config); err != nil {

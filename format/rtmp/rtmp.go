@@ -596,7 +596,6 @@ func (self *Conn) probe() (err error) {
 			return
 		}
 	}
-
 	self.streams = self.prober.Streams
 	self.stage++
 	return

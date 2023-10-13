@@ -99,11 +99,13 @@ func (self *Prober) PushTag(tag flvio.Tag, timestamp int32) (err error) {
 				if tag.CodecID == flvio.VIDEO_H264 {
 					if stream, err = h264parser.NewCodecDataFromAVCDecoderConfRecord(tag.Data); err != nil {
 						err = fmt.Errorf("flv: h264 seqhdr invalid")
+						log.Printf("flv: h264 seqhdr invalid")
 						return
 					}
 				} else if tag.CodecID == flvio.VIDEO_H265 {
 					if stream, err = h265parser.NewCodecDataFromAVCDecoderConfRecord(tag.Data); err != nil {
-						err = fmt.Errorf("flv: h264 seqhdr invalid")
+						err = fmt.Errorf("flv: h265 seqhdr invalid")
+						log.Printf("flv: h265 seqhdr invalid")
 						return
 					}
 				}
@@ -113,6 +115,17 @@ func (self *Prober) PushTag(tag flvio.Tag, timestamp int32) (err error) {
 			}
 
 		case flvio.AVC_NALU:
+			if !self.GotVideo {
+				self.VideoStreamIdx = len(self.Streams)
+				var stream av.CodecData
+				if tag.CodecID == flvio.VIDEO_H264 {
+					stream = h264parser.NewCodecData()
+				} else if tag.CodecID == flvio.VIDEO_H265 {
+					stream = h265parser.NewCodecData()
+				}
+				self.Streams = append(self.Streams, stream)
+				self.GotVideo = true
+			}
 			self.CacheTag(tag, timestamp)
 		}
 

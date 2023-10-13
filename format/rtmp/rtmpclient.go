@@ -158,6 +158,7 @@ func (rc *RtmpClient) Sendpacket(pkt av.Packet) (err error) {
 	if !rc.initHeader {
 		log.Printf("WriteStreamsHeader\n")
 		if err = rc.conn.WriteStreamsHeader(streams); err != nil {
+			log.Printf("rtmp WriteStreamsHeader err: %v\n", err)
 			return
 		}
 		rc.initHeader = true

@@ -499,6 +499,10 @@ func NewCodecDataFromAVCDecoderConfRecord(record []byte) (self CodecData, err er
 	return
 }
 
+func NewCodecData() (self CodecData) {
+	return CodecData{}
+}
+
 func NewCodecDataFromVPSAndSPSAndPPS(vps, sps, pps []byte) (self CodecData, err error) {
 	recordinfo := AVCDecoderConfRecord{}
 	recordinfo.AVCProfileIndication = sps[3]
