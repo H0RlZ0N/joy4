@@ -308,6 +308,7 @@ func (self *Conn) pollMsg() (err error) {
 	self.avtag = flvio.Tag{}
 	for {
 		if err = self.readChunk(); err != nil {
+			log.Printf("rtmp readChunk err: %v\n", err)
 			return
 		}
 		if self.gotmsg {
@@ -362,15 +363,8 @@ var CodecTypes = flv.CodecTypes
 
 func (self *Conn) writeBasicConf() (err error) {
 	// > SetChunkSize
-	if err = self.writeSetChunkSize(1024 * 1024 * 128); err != nil {
-		return
-	}
-	// > WindowAckSize
-	if err = self.writeWindowAckSize(5000000); err != nil {
-		return
-	}
-	// > SetPeerBandwidth
-	if err = self.writeSetPeerBandwidth(5000000, 2); err != nil {
+	if err = self.writeSetChunkSize(10 * 1024 * 1024 /* 1024 * 1024 * 128 */); err != nil {
+		log.Printf("rtmp writeSetChunkSize err: %v\n", err)
 		return
 	}
 	return
@@ -602,35 +596,34 @@ func (self *Conn) probe() (err error) {
 }
 
 func (self *Conn) writeConnect(path string) (err error) {
-	if err = self.writeBasicConf(); err != nil {
-		return
-	}
-
 	// > connect("app")
 	if Debug {
 		fmt.Printf("rtmp: > connect('%s') host=%s\n", path, self.URL.Host)
 	}
+	if err = self.flushWrite(); err != nil {
+		log.Printf("rtmp flushWrite err: %v\n", err)
+		return
+	}
 	if err = self.writeCommandMsg(3, 0, "connect", 1,
 		flvio.AMFMap{
-			"app":           path,
-			"flashVer":      "MAC 22,0,0,192",
-			"tcUrl":         getTcUrl(self.URL),
-			"fpad":          false,
-			"capabilities":  15,
-			"audioCodecs":   4071,
-			"videoCodecs":   252,
-			"videoFunction": 1,
+			"app":      path,
+			"type":     "nonprivate",
+			"flashVer": "MAC 22,0,0,192",
+			"tcUrl":    getTcUrl(self.URL),
 		},
 	); err != nil {
+		log.Printf("rtmp writeCommandMsg err: %v\n", err)
 		return
 	}
 
 	if err = self.flushWrite(); err != nil {
+		log.Printf("rtmp flushWrite err: %v\n", err)
 		return
 	}
 
 	for {
 		if err = self.pollMsg(); err != nil {
+			log.Printf("rtmp pollMsg err: %v\n", err)
 			return
 		}
 		if self.gotcommand {
@@ -652,9 +645,6 @@ func (self *Conn) writeConnect(path string) (err error) {
 				if len(self.msgdata) == 4 {
 					self.readAckSize = pio.U32BE(self.msgdata)
 				}
-				if err = self.writeWindowAckSize(0xffffffff); err != nil {
-					return
-				}
 			}
 		}
 	}
@@ -666,26 +656,44 @@ func (self *Conn) connectPublish() (err error) {
 	connectpath, publishpath := SplitPath(self.URL)
 
 	if err = self.writeConnect(connectpath); err != nil {
+		log.Printf("rtmp writeConnect err: %v\n", err)
 		return
 	}
 
-	transid := 2
+	transid := 4
 
 	// > createStream()
 	if Debug {
 		fmt.Printf("rtmp: > createStream()\n")
 	}
+
+	if err = self.writeBasicConf(); err != nil {
+		log.Printf("rtmp writeBasicConf err: %v\n", err)
+		return
+	}
+
+	if err = self.writeCommandMsg(3, 0, "releaseStream", 2, nil, publishpath); err != nil {
+		log.Printf("rtmp writeCommandMsg err: %v\n", err)
+		return
+	}
+	if err = self.writeCommandMsg(3, 0, "FCPublish", 3, nil, publishpath); err != nil {
+		log.Printf("rtmp writeCommandMsg err: %v\n", err)
+		return
+	}
 	if err = self.writeCommandMsg(3, 0, "createStream", transid, nil); err != nil {
+		log.Printf("rtmp writeCommandMsg err: %v\n", err)
 		return
 	}
 	transid++
 
 	if err = self.flushWrite(); err != nil {
+		log.Printf("rtmp flushWrite err: %v\n", err)
 		return
 	}
 
 	for {
 		if err = self.pollMsg(); err != nil {
+			log.Printf("rtmp pollMsg err: %v\n", err)
 			return
 		}
 		if self.gotcommand {
@@ -705,13 +713,27 @@ func (self *Conn) connectPublish() (err error) {
 	if Debug {
 		fmt.Printf("rtmp: > publish('%s')\n", publishpath)
 	}
-	if err = self.writeCommandMsg(8, self.avmsgsid, "publish", transid, nil, publishpath); err != nil {
+	if err = self.writeCommandMsg(8, self.avmsgsid, "publish", transid, nil, publishpath, "live"); err != nil {
+		log.Printf("rtmp writeCommandMsg err: %v\n", err)
 		return
 	}
 	transid++
 
 	if err = self.flushWrite(); err != nil {
+		log.Printf("rtmp flushWrite err: %v\n", err)
 		return
+	}
+
+	for {
+		if err = self.pollMsg(); err != nil {
+			log.Printf("rtmp pollMsg err: %v\n", err)
+			return
+		}
+		if self.gotcommand {
+			if self.commandname == "onStatus" {
+				break
+			}
+		}
 	}
 
 	self.writing = true
@@ -813,10 +835,12 @@ func (self *Conn) prepare(stage int, flags int) (err error) {
 		case 0:
 			if self.isserver {
 				if err = self.handshakeServer(); err != nil {
+					log.Printf("rtmp handshakeServer err: %v\n", err)
 					return
 				}
 			} else {
 				if err = self.handshakeClient(); err != nil {
+					log.Printf("rtmp handshakeClient err: %v\n", err)
 					return
 				}
 			}
@@ -824,15 +848,18 @@ func (self *Conn) prepare(stage int, flags int) (err error) {
 		case stageHandshakeDone:
 			if self.isserver {
 				if err = self.readConnect(); err != nil {
+					log.Printf("rtmp readConnect err: %v\n", err)
 					return
 				}
 			} else {
 				if flags == prepareReading {
 					if err = self.connectPlay(); err != nil {
+						log.Printf("rtmp connectPlay err: %v\n", err)
 						return
 					}
 				} else {
 					if err = self.connectPublish(); err != nil {
+						log.Printf("rtmp connectPublish err: %v\n", err)
 						return
 					}
 				}
@@ -841,6 +868,7 @@ func (self *Conn) prepare(stage int, flags int) (err error) {
 		case stageCommandDone:
 			if flags == prepareReading {
 				if err = self.probe(); err != nil {
+					log.Printf("rtmp probe err: %v\n", err)
 					return
 				}
 			} else {
@@ -908,16 +936,21 @@ func (self *Conn) WriteStreamsHeader(streams []*rawmedia.Stream) (err error) {
 
 func (self *Conn) WriteHeader(streams []av.CodecData) (err error) {
 	if err = self.prepare(stageCommandDone, prepareWriting); err != nil {
+		log.Printf("rtmp prepare err: %v\n", err)
 		return
 	}
 
-	var metadata flvio.AMFMap
-	if metadata, err = flv.NewMetadataByStreams(streams); err != nil {
+	// > setdataframe
+	var metaArray flvio.AMFECMAArray
+	if metaArray, err = flv.NewMetaArrayByStreams(streams); err != nil {
+		log.Printf("rtmp NewMetaArrayByStreams err: %v\n", err)
 		return
 	}
-
-	// > onMetaData()
-	if err = self.writeDataMsg(5, self.avmsgsid, "onMetaData", metadata); err != nil {
+	if err = self.writeDataMsg(4, self.avmsgsid, "@setDataFrame", "onMetaData", metaArray); err != nil {
+		log.Printf("rtmp writeDataMsg err: %v\n", err)
+		return
+	}
+	if err = self.flushWrite(); err != nil {
 		return
 	}
 
@@ -927,10 +960,12 @@ func (self *Conn) WriteHeader(streams []av.CodecData) (err error) {
 		var ok bool
 		var tag flvio.Tag
 		if tag, ok, err = flv.CodecDataToTag(stream); err != nil {
+			log.Printf("rtmp CodecDataToTag err: %v\n", err)
 			return
 		}
 		if ok {
 			if err = self.writeAVTag(tag, 0); err != nil {
+				log.Printf("rtmp writeAVTag err: %v\n", err)
 				return
 			}
 		}
@@ -1135,6 +1170,7 @@ func (self *Conn) readChunk() (err error) {
 	b := self.readbuf
 	n := 0
 	if _, err = io.ReadFull(self.bufr, b[:1]); err != nil {
+		log.Printf("io ReadFull err: %v\n", err)
 		return
 	}
 	header := b[0]

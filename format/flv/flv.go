@@ -19,6 +19,56 @@ import (
 
 var MaxProbePacketCount = 20
 
+func NewMetaArrayByStreams(streams []av.CodecData) (metaArray flvio.AMFECMAArray, err error) {
+	metaArray = flvio.AMFECMAArray{}
+
+	for _, _stream := range streams {
+		typ := _stream.Type()
+		switch {
+		case typ.IsVideo():
+			stream := _stream.(av.VideoCodecData)
+			switch typ {
+			case av.H264:
+				metaArray["videocodecid"] = flvio.VIDEO_H264
+			case av.H265:
+				metaArray["videocodecid"] = flvio.VIDEO_H265
+
+			default:
+				err = fmt.Errorf("flv: metadata: unsupported video codecType=%v", stream.Type())
+				return
+			}
+
+			metaArray["width"] = stream.Width()
+			metaArray["height"] = stream.Height()
+
+			log.Printf("flv %v video %v x %v\n", typ.String(), stream.Width(), stream.Height())
+
+		case typ.IsAudio():
+			stream := _stream.(av.AudioCodecData)
+			switch typ {
+			case av.AAC:
+				metaArray["audiocodecid"] = flvio.SOUND_AAC
+
+			case av.SPEEX:
+				metaArray["audiocodecid"] = flvio.SOUND_SPEEX
+
+			default:
+				err = fmt.Errorf("flv: metaArray: unsupported audio codecType=%v", stream.Type())
+				return
+			}
+
+			metaArray["audiosamplerate"] = stream.SampleRate()
+
+			log.Printf("flv %v audio %v\n", typ.String(), stream.SampleRate())
+		}
+	}
+
+	metaArray["duration"] = 0
+	metaArray["filesize"] = 0
+
+	return
+}
+
 func NewMetadataByStreams(streams []av.CodecData) (metadata flvio.AMFMap, err error) {
 	metadata = flvio.AMFMap{}
 
