@@ -63,21 +63,21 @@ type Server struct {
 	HandleConn    func(*Conn)
 }
 
-func (self *Server) handleConn(conn *Conn) (err error) {
-	if self.HandleConn != nil {
-		self.HandleConn(conn)
+func (selfConn *Server) handleConn(conn *Conn) (err error) {
+	if selfConn.HandleConn != nil {
+		selfConn.HandleConn(conn)
 	} else {
 		if err = conn.prepare(stageCommandDone, 0); err != nil {
 			return
 		}
 
 		if conn.playing {
-			if self.HandlePlay != nil {
-				self.HandlePlay(conn)
+			if selfConn.HandlePlay != nil {
+				selfConn.HandlePlay(conn)
 			}
 		} else if conn.publishing {
-			if self.HandlePublish != nil {
-				self.HandlePublish(conn)
+			if selfConn.HandlePublish != nil {
+				selfConn.HandlePublish(conn)
 			}
 		}
 	}
@@ -85,8 +85,8 @@ func (self *Server) handleConn(conn *Conn) (err error) {
 	return
 }
 
-func (self *Server) ListenAndServe() (err error) {
-	addr := self.Addr
+func (selfConn *Server) ListenAndServe() (err error) {
+	addr := selfConn.Addr
 	if addr == "" {
 		addr = ":1935"
 	}
@@ -118,7 +118,7 @@ func (self *Server) ListenAndServe() (err error) {
 		conn := NewConn(netconn)
 		conn.isserver = true
 		go func() {
-			err := self.handleConn(conn)
+			err := selfConn.handleConn(conn)
 			if Debug {
 				fmt.Println("rtmp: server: client closed err:", err)
 			}
@@ -192,15 +192,15 @@ type txrxcount struct {
 	rxbytes uint64
 }
 
-func (self *txrxcount) Read(p []byte) (int, error) {
-	n, err := self.ReadWriter.Read(p)
-	self.rxbytes += uint64(n)
+func (selfConn *txrxcount) Read(p []byte) (int, error) {
+	n, err := selfConn.ReadWriter.Read(p)
+	selfConn.rxbytes += uint64(n)
 	return n, err
 }
 
-func (self *txrxcount) Write(p []byte) (int, error) {
-	n, err := self.ReadWriter.Write(p)
-	self.txbytes += uint64(n)
+func (selfConn *txrxcount) Write(p []byte) (int, error) {
+	n, err := selfConn.ReadWriter.Write(p)
+	selfConn.txbytes += uint64(n)
 	return n, err
 }
 
@@ -231,9 +231,9 @@ type chunkStream struct {
 	msgdata     []byte
 }
 
-func (self *chunkStream) Start() {
-	self.msgdataleft = self.msgdatalen
-	self.msgdata = make([]byte, self.msgdatalen)
+func (selfConn *chunkStream) Start() {
+	selfConn.msgdataleft = selfConn.msgdatalen
+	selfConn.msgdata = make([]byte, selfConn.msgdatalen)
 }
 
 const (
@@ -256,62 +256,62 @@ const (
 	eventtypeStreamIsRecorded = 4
 )
 
-func (self *Conn) NetConn() net.Conn {
-	return self.netconn
+func (selfConn *Conn) NetConn() net.Conn {
+	return selfConn.netconn
 }
 
-func (self *Conn) TxBytes() uint64 {
-	return self.txrxcount.txbytes
+func (selfConn *Conn) TxBytes() uint64 {
+	return selfConn.txrxcount.txbytes
 }
 
-func (self *Conn) RxBytes() uint64 {
-	return self.txrxcount.rxbytes
+func (selfConn *Conn) RxBytes() uint64 {
+	return selfConn.txrxcount.rxbytes
 }
 
-func (self *Conn) Close() (err error) {
-	if self.netconn != nil {
+func (selfConn *Conn) Close() (err error) {
+	if selfConn.netconn != nil {
 		log.Printf("close rtmp netconn\n")
-		err = self.netconn.Close()
-		self.netconn = nil
+		err = selfConn.netconn.Close()
+		selfConn.netconn = nil
 	}
 	return
 }
 
-func (self *Conn) pollCommand() (err error) {
+func (selfConn *Conn) pollCommand() (err error) {
 	for {
-		if err = self.pollMsg(); err != nil {
+		if err = selfConn.pollMsg(); err != nil {
 			return
 		}
-		if self.gotcommand {
+		if selfConn.gotcommand {
 			return
 		}
 	}
 }
 
-func (self *Conn) pollAVTag() (tag flvio.Tag, err error) {
+func (selfConn *Conn) pollAVTag() (tag flvio.Tag, err error) {
 	for {
-		if err = self.pollMsg(); err != nil {
+		if err = selfConn.pollMsg(); err != nil {
 			return
 		}
-		switch self.msgtypeid {
+		switch selfConn.msgtypeid {
 		case msgtypeidVideoMsg, msgtypeidAudioMsg:
-			tag = self.avtag
+			tag = selfConn.avtag
 			return
 		}
 	}
 }
 
-func (self *Conn) pollMsg() (err error) {
-	self.gotmsg = false
-	self.gotcommand = false
-	self.datamsgvals = nil
-	self.avtag = flvio.Tag{}
+func (selfConn *Conn) pollMsg() (err error) {
+	selfConn.gotmsg = false
+	selfConn.gotcommand = false
+	selfConn.datamsgvals = nil
+	selfConn.avtag = flvio.Tag{}
 	for {
-		if err = self.readChunk(); err != nil {
+		if err = selfConn.readChunk(); err != nil {
 			log.Printf("rtmp readChunk err: %v\n", err)
 			return
 		}
-		if self.gotmsg {
+		if selfConn.gotmsg {
 			return
 		}
 	}
@@ -361,87 +361,109 @@ func createURL(tcurl, app, play string) (u *url.URL) {
 
 var CodecTypes = flv.CodecTypes
 
-func (self *Conn) writeBasicConf() (err error) {
-	// > SetChunkSize
-	if err = self.writeSetChunkSize(10 * 1024 * 1024 /* 1024 * 1024 * 128 */); err != nil {
+func (selfConn *Conn) writeBasicConf() (err error) {
+	// > SetWindowAckSize
+	if err = selfConn.writeWindowAckSize(5000000); err != nil {
+		log.Printf("rtmp writeWindowAckSize err: %v\n", err)
+		return
+	}
+	if err = selfConn.flushWrite(); err != nil {
+		return
+	}
+	if err = selfConn.flushWrite(); err != nil {
+		return
+	}
+	// > SetPeerBandwidth
+	if err = selfConn.writeSetPeerBandwidth(5000000, 2); err != nil {
 		log.Printf("rtmp writeSetChunkSize err: %v\n", err)
+		return
+	}
+	// > SetChunkSize
+	log.Printf("--------------> writeBasicConf SetChunkSize\n")
+	if err = selfConn.writeSetChunkSize(4096); err != nil {
+		//if err = selfConn.writeSetChunkSize(10 * 1024 * 1024 /* 1024 * 1024 * 128 */); err != nil {
+		log.Printf("rtmp writeSetChunkSize err: %v\n", err)
+		return
+	}
+	if err = selfConn.flushWrite(); err != nil {
 		return
 	}
 	return
 }
 
-func (self *Conn) readConnect() (err error) {
+func (selfConn *Conn) readConnect() (err error) {
 	var connectpath string
 
 	// < connect("app")
-	if err = self.pollCommand(); err != nil {
+	if err = selfConn.pollCommand(); err != nil {
 		return
 	}
-	if self.commandname != "connect" {
+	if selfConn.commandname != "connect" {
 		err = fmt.Errorf("rtmp: first command is not connect")
 		return
 	}
-	if self.commandobj == nil {
+	if selfConn.commandobj == nil {
 		err = fmt.Errorf("rtmp: connect command params invalid")
 		return
 	}
 
 	var ok bool
 	var _app, _tcurl interface{}
-	if _app, ok = self.commandobj["app"]; !ok {
+	if _app, ok = selfConn.commandobj["app"]; !ok {
 		err = fmt.Errorf("rtmp: `connect` params missing `app`")
 		return
 	}
 	connectpath, _ = _app.(string)
 
 	var tcurl string
-	if _tcurl, ok = self.commandobj["tcUrl"]; !ok {
-		_tcurl, ok = self.commandobj["tcurl"]
+	if _tcurl, ok = selfConn.commandobj["tcUrl"]; !ok {
+		_tcurl, ok = selfConn.commandobj["tcurl"]
 	}
 	if ok {
 		tcurl, _ = _tcurl.(string)
 	}
-	connectparams := self.commandobj
+	connectparams := selfConn.commandobj
 
-	if err = self.writeBasicConf(); err != nil {
+	if err = selfConn.writeBasicConf(); err != nil {
 		return
 	}
 
 	// > _result("NetConnection.Connect.Success")
-	if err = self.writeCommandMsg(3, 0, "_result", self.commandtransid,
+	if err = selfConn.writeCommandMsg(3, 0, "_result", selfConn.commandtransid,
 		flvio.AMFMap{
 			"fmtVer":       "FMS/3,0,1,123",
 			"capabilities": 31,
 		},
 		flvio.AMFMap{
-			"level":          "status",
-			"code":           "NetConnection.Connect.Success",
-			"description":    "Connection succeeded.",
-			"objectEncoding": 3,
+			"level":       "status",
+			"code":        "NetConnection.Connect.Success",
+			"description": "Connection succeeded.",
+			//"objectEncoding": 3,
+			"objectEncoding": 0,
 		},
 	); err != nil {
 		return
 	}
 
-	if err = self.flushWrite(); err != nil {
+	if err = selfConn.flushWrite(); err != nil {
 		return
 	}
 
 	for {
-		if err = self.pollMsg(); err != nil {
+		if err = selfConn.pollMsg(); err != nil {
 			return
 		}
-		if self.gotcommand {
-			switch self.commandname {
+		if selfConn.gotcommand {
+			switch selfConn.commandname {
 
 			// < createStream
 			case "createStream":
-				self.avmsgsid = uint32(1)
+				selfConn.avmsgsid = uint32(1)
 				// > _result(streamid)
-				if err = self.writeCommandMsg(3, 0, "_result", self.commandtransid, nil, self.avmsgsid); err != nil {
+				if err = selfConn.writeCommandMsg(3, 0, "_result", selfConn.commandtransid, nil, selfConn.avmsgsid); err != nil {
 					return
 				}
-				if err = self.flushWrite(); err != nil {
+				if err = selfConn.flushWrite(); err != nil {
 					return
 				}
 
@@ -451,20 +473,20 @@ func (self *Conn) readConnect() (err error) {
 					fmt.Println("rtmp: < publish")
 				}
 
-				if len(self.commandparams) < 1 {
+				if len(selfConn.commandparams) < 1 {
 					err = fmt.Errorf("rtmp: publish params invalid")
 					return
 				}
-				publishpath, _ := self.commandparams[0].(string)
+				publishpath, _ := selfConn.commandparams[0].(string)
 
 				var cberr error
-				if self.OnPlayOrPublish != nil {
-					cberr = self.OnPlayOrPublish(self.commandname, connectparams)
+				if selfConn.OnPlayOrPublish != nil {
+					cberr = selfConn.OnPlayOrPublish(selfConn.commandname, connectparams)
 				}
 
 				// > onStatus()
-				if err = self.writeCommandMsg(5, self.avmsgsid,
-					"onStatus", self.commandtransid, nil,
+				if err = selfConn.writeCommandMsg(5, selfConn.avmsgsid,
+					"onStatus", selfConn.commandtransid, nil,
 					flvio.AMFMap{
 						"level":       "status",
 						"code":        "NetStream.Publish.Start",
@@ -473,7 +495,7 @@ func (self *Conn) readConnect() (err error) {
 				); err != nil {
 					return
 				}
-				if err = self.flushWrite(); err != nil {
+				if err = selfConn.flushWrite(); err != nil {
 					return
 				}
 
@@ -482,10 +504,10 @@ func (self *Conn) readConnect() (err error) {
 					return
 				}
 
-				self.URL = createURL(tcurl, connectpath, publishpath)
-				self.publishing = true
-				self.reading = true
-				self.stage++
+				selfConn.URL = createURL(tcurl, connectpath, publishpath)
+				selfConn.publishing = true
+				selfConn.reading = true
+				selfConn.stage++
 				return
 
 			// < play("path")
@@ -494,20 +516,20 @@ func (self *Conn) readConnect() (err error) {
 					fmt.Println("rtmp: < play")
 				}
 
-				if len(self.commandparams) < 1 {
+				if len(selfConn.commandparams) < 1 {
 					err = fmt.Errorf("rtmp: command play params invalid")
 					return
 				}
-				playpath, _ := self.commandparams[0].(string)
+				playpath, _ := selfConn.commandparams[0].(string)
 
 				// > streamBegin(streamid)
-				if err = self.writeStreamBegin(self.avmsgsid); err != nil {
+				if err = selfConn.writeStreamBegin(selfConn.avmsgsid); err != nil {
 					return
 				}
 
 				// > onStatus()
-				if err = self.writeCommandMsg(5, self.avmsgsid,
-					"onStatus", self.commandtransid, nil,
+				if err = selfConn.writeCommandMsg(5, selfConn.avmsgsid,
+					"onStatus", selfConn.commandtransid, nil,
 					flvio.AMFMap{
 						"level":       "status",
 						"code":        "NetStream.Play.Start",
@@ -518,42 +540,40 @@ func (self *Conn) readConnect() (err error) {
 				}
 
 				// > |RtmpSampleAccess()
-				if err = self.writeDataMsg(5, self.avmsgsid,
+				if err = selfConn.writeDataMsg(5, selfConn.avmsgsid,
 					"|RtmpSampleAccess", true, true,
 				); err != nil {
 					return
 				}
 
-				if err = self.flushWrite(); err != nil {
+				if err = selfConn.flushWrite(); err != nil {
 					return
 				}
 
-				self.URL = createURL(tcurl, connectpath, playpath)
-				self.playing = true
-				self.writing = true
-				self.stage++
+				selfConn.URL = createURL(tcurl, connectpath, playpath)
+				selfConn.playing = true
+				selfConn.writing = true
+				selfConn.stage++
 				return
 			}
 
 		}
 	}
-
-	return
 }
 
-func (self *Conn) checkConnectResult() (ok bool, errmsg string) {
-	if len(self.commandparams) < 1 {
+func (selfConn *Conn) checkConnectResult() (ok bool, errmsg string) {
+	if len(selfConn.commandparams) < 1 {
 		errmsg = "params length < 1"
 		return
 	}
 
-	obj, _ := self.commandparams[0].(flvio.AMFMap)
+	obj, _ := selfConn.commandparams[0].(flvio.AMFMap)
 	if obj == nil {
 		errmsg = "params[0] not object"
 		return
 	}
 
-	_code, _ := obj["code"]
+	_code := obj["code"]
 	if _code == nil {
 		errmsg = "code invalid"
 		return
@@ -569,69 +589,69 @@ func (self *Conn) checkConnectResult() (ok bool, errmsg string) {
 	return
 }
 
-func (self *Conn) checkCreateStreamResult() (ok bool, avmsgsid uint32) {
-	if len(self.commandparams) < 1 {
+func (selfConn *Conn) checkCreateStreamResult() (ok bool, avmsgsid uint32) {
+	if len(selfConn.commandparams) < 1 {
 		return
 	}
 
 	ok = true
-	_avmsgsid, _ := self.commandparams[0].(float64)
+	_avmsgsid, _ := selfConn.commandparams[0].(float64)
 	avmsgsid = uint32(_avmsgsid)
 	return
 }
 
-func (self *Conn) probe() (err error) {
-	for !self.prober.Probed() {
+func (selfConn *Conn) probe() (err error) {
+	for !selfConn.prober.Probed() {
 		var tag flvio.Tag
-		if tag, err = self.pollAVTag(); err != nil {
+		if tag, err = selfConn.pollAVTag(); err != nil {
 			return
 		}
-		if err = self.prober.PushTag(tag, int32(self.timestamp)); err != nil {
+		if err = selfConn.prober.PushTag(tag, int32(selfConn.timestamp)); err != nil {
 			return
 		}
 	}
-	self.streams = self.prober.Streams
-	self.stage++
+	selfConn.streams = selfConn.prober.Streams
+	selfConn.stage++
 	return
 }
 
-func (self *Conn) writeConnect(path string) (err error) {
+func (selfConn *Conn) writeConnect(path string) (err error) {
 	// > connect("app")
 	if Debug {
-		fmt.Printf("rtmp: > connect('%s') host=%s\n", path, self.URL.Host)
+		fmt.Printf("rtmp: > connect('%s') host=%s\n", path, selfConn.URL.Host)
 	}
-	if err = self.flushWrite(); err != nil {
+	if err = selfConn.flushWrite(); err != nil {
 		log.Printf("rtmp flushWrite err: %v\n", err)
 		return
 	}
-	if err = self.writeCommandMsg(3, 0, "connect", 1,
+	if err = selfConn.writeCommandMsg(3, 0, "connect", 1,
 		flvio.AMFMap{
 			"app":      path,
 			"type":     "nonprivate",
 			"flashVer": "MAC 22,0,0,192",
-			"tcUrl":    getTcUrl(self.URL),
+			"tcUrl":    getTcUrl(selfConn.URL),
 		},
 	); err != nil {
 		log.Printf("rtmp writeCommandMsg err: %v\n", err)
 		return
 	}
 
-	if err = self.flushWrite(); err != nil {
+	if err = selfConn.flushWrite(); err != nil {
 		log.Printf("rtmp flushWrite err: %v\n", err)
 		return
 	}
 
 	for {
-		if err = self.pollMsg(); err != nil {
+		if err = selfConn.pollMsg(); err != nil {
 			log.Printf("rtmp pollMsg err: %v\n", err)
 			return
 		}
-		if self.gotcommand {
+		if selfConn.gotcommand {
 			// < _result("NetConnection.Connect.Success")
-			if self.commandname == "_result" {
+			if selfConn.commandname == "_result" {
 				var ok bool
 				var errmsg string
-				if ok, errmsg = self.checkConnectResult(); !ok {
+				if ok, errmsg = selfConn.checkConnectResult(); !ok {
 					err = fmt.Errorf("rtmp: command connect failed: %s", errmsg)
 					return
 				}
@@ -641,9 +661,9 @@ func (self *Conn) writeConnect(path string) (err error) {
 				break
 			}
 		} else {
-			if self.msgtypeid == msgtypeidWindowAckSize {
-				if len(self.msgdata) == 4 {
-					self.readAckSize = pio.U32BE(self.msgdata)
+			if selfConn.msgtypeid == msgtypeidWindowAckSize {
+				if len(selfConn.msgdata) == 4 {
+					selfConn.readAckSize = pio.U32BE(selfConn.msgdata)
 				}
 			}
 		}
@@ -652,10 +672,10 @@ func (self *Conn) writeConnect(path string) (err error) {
 	return
 }
 
-func (self *Conn) connectPublish() (err error) {
-	connectpath, publishpath := SplitPath(self.URL)
+func (selfConn *Conn) connectPublish() (err error) {
+	connectpath, publishpath := SplitPath(selfConn.URL)
 
-	if err = self.writeConnect(connectpath); err != nil {
+	if err = selfConn.writeConnect(connectpath); err != nil {
 		log.Printf("rtmp writeConnect err: %v\n", err)
 		return
 	}
@@ -667,40 +687,44 @@ func (self *Conn) connectPublish() (err error) {
 		fmt.Printf("rtmp: > createStream()\n")
 	}
 
-	if err = self.writeBasicConf(); err != nil {
+	if err = selfConn.writeBasicConf(); err != nil {
 		log.Printf("rtmp writeBasicConf err: %v\n", err)
 		return
 	}
 
-	if err = self.writeCommandMsg(3, 0, "releaseStream", 2, nil, publishpath); err != nil {
+	if err = selfConn.writeCommandMsg(3, 0, "releaseStream", 2, nil, publishpath); err != nil {
 		log.Printf("rtmp writeCommandMsg err: %v\n", err)
 		return
 	}
-	if err = self.writeCommandMsg(3, 0, "FCPublish", 3, nil, publishpath); err != nil {
+	if err = selfConn.flushWrite(); err != nil {
+		log.Printf("rtmp flushWrite err: %v\n", err)
+		return
+	}
+	if err = selfConn.writeCommandMsg(3, 0, "FCPublish", 3, nil, publishpath); err != nil {
 		log.Printf("rtmp writeCommandMsg err: %v\n", err)
 		return
 	}
-	if err = self.writeCommandMsg(3, 0, "createStream", transid, nil); err != nil {
+	if err = selfConn.writeCommandMsg(3, 0, "createStream", transid, nil); err != nil {
 		log.Printf("rtmp writeCommandMsg err: %v\n", err)
 		return
 	}
 	transid++
 
-	if err = self.flushWrite(); err != nil {
+	if err = selfConn.flushWrite(); err != nil {
 		log.Printf("rtmp flushWrite err: %v\n", err)
 		return
 	}
 
 	for {
-		if err = self.pollMsg(); err != nil {
+		if err = selfConn.pollMsg(); err != nil {
 			log.Printf("rtmp pollMsg err: %v\n", err)
 			return
 		}
-		if self.gotcommand {
+		if selfConn.gotcommand {
 			// < _result(avmsgsid) of createStream
-			if self.commandname == "_result" {
+			if selfConn.commandname == "_result" {
 				var ok bool
-				if ok, self.avmsgsid = self.checkCreateStreamResult(); !ok {
+				if ok, selfConn.avmsgsid = selfConn.checkCreateStreamResult(); !ok {
 					err = fmt.Errorf("rtmp: createStream command failed")
 					return
 				}
@@ -713,39 +737,39 @@ func (self *Conn) connectPublish() (err error) {
 	if Debug {
 		fmt.Printf("rtmp: > publish('%s')\n", publishpath)
 	}
-	if err = self.writeCommandMsg(8, self.avmsgsid, "publish", transid, nil, publishpath, "live"); err != nil {
+	if err = selfConn.writeCommandMsg(8, selfConn.avmsgsid, "publish", transid, nil, publishpath, "live"); err != nil {
 		log.Printf("rtmp writeCommandMsg err: %v\n", err)
 		return
 	}
 	transid++
 
-	if err = self.flushWrite(); err != nil {
+	if err = selfConn.flushWrite(); err != nil {
 		log.Printf("rtmp flushWrite err: %v\n", err)
 		return
 	}
 
 	for {
-		if err = self.pollMsg(); err != nil {
+		if err = selfConn.pollMsg(); err != nil {
 			log.Printf("rtmp pollMsg err: %v\n", err)
 			return
 		}
-		if self.gotcommand {
-			if self.commandname == "onStatus" {
+		if selfConn.gotcommand {
+			if selfConn.commandname == "onStatus" {
 				break
 			}
 		}
 	}
 
-	self.writing = true
-	self.publishing = true
-	self.stage++
+	selfConn.writing = true
+	selfConn.publishing = true
+	selfConn.stage++
 	return
 }
 
-func (self *Conn) connectPlay() (err error) {
-	connectpath, playpath := SplitPath(self.URL)
+func (selfConn *Conn) connectPlay() (err error) {
+	connectpath, playpath := SplitPath(selfConn.URL)
 
-	if err = self.writeConnect(connectpath); err != nil {
+	if err = selfConn.writeConnect(connectpath); err != nil {
 		return
 	}
 
@@ -753,28 +777,28 @@ func (self *Conn) connectPlay() (err error) {
 	if Debug {
 		fmt.Printf("rtmp: > createStream()\n")
 	}
-	if err = self.writeCommandMsg(3, 0, "createStream", 2, nil); err != nil {
+	if err = selfConn.writeCommandMsg(3, 0, "createStream", 2, nil); err != nil {
 		return
 	}
 
 	// > SetBufferLength 0,100ms
-	if err = self.writeSetBufferLength(0, 100); err != nil {
+	if err = selfConn.writeSetBufferLength(0, 100); err != nil {
 		return
 	}
 
-	if err = self.flushWrite(); err != nil {
+	if err = selfConn.flushWrite(); err != nil {
 		return
 	}
 
 	for {
-		if err = self.pollMsg(); err != nil {
+		if err = selfConn.pollMsg(); err != nil {
 			return
 		}
-		if self.gotcommand {
+		if selfConn.gotcommand {
 			// < _result(avmsgsid) of createStream
-			if self.commandname == "_result" {
+			if selfConn.commandname == "_result" {
 				var ok bool
-				if ok, self.avmsgsid = self.checkCreateStreamResult(); !ok {
+				if ok, selfConn.avmsgsid = selfConn.checkCreateStreamResult(); !ok {
 					err = fmt.Errorf("rtmp: createStream command failed")
 					return
 				}
@@ -787,78 +811,76 @@ func (self *Conn) connectPlay() (err error) {
 	if Debug {
 		fmt.Printf("rtmp: > play('%s')\n", playpath)
 	}
-	if err = self.writeCommandMsg(8, self.avmsgsid, "play", 0, nil, playpath); err != nil {
+	if err = selfConn.writeCommandMsg(8, selfConn.avmsgsid, "play", 0, nil, playpath); err != nil {
 		return
 	}
-	if err = self.flushWrite(); err != nil {
+	if err = selfConn.flushWrite(); err != nil {
 		return
 	}
 
-	self.reading = true
-	self.playing = true
-	self.stage++
+	selfConn.reading = true
+	selfConn.playing = true
+	selfConn.stage++
 	return
 }
 
-func (self *Conn) ReadPacket() (pkt av.Packet, err error) {
-	if err = self.prepare(stageCodecDataDone, prepareReading); err != nil {
+func (selfConn *Conn) ReadPacket() (pkt av.Packet, err error) {
+	if err = selfConn.prepare(stageCodecDataDone, prepareReading); err != nil {
 		return
 	}
 
-	if !self.prober.Empty() {
-		pkt = self.prober.PopPacket()
+	if !selfConn.prober.Empty() {
+		pkt = selfConn.prober.PopPacket()
 		return
 	}
 
 	for {
 		var tag flvio.Tag
-		if tag, err = self.pollAVTag(); err != nil {
+		if tag, err = selfConn.pollAVTag(); err != nil {
 			return
 		}
 
 		var ok bool
-		if pkt, ok = self.prober.TagToPacket(tag, int32(self.timestamp)); ok {
+		if pkt, ok = selfConn.prober.TagToPacket(tag, int32(selfConn.timestamp)); ok {
 			return
 		}
 	}
-
-	return
 }
 
-func (self *Conn) Prepare() (err error) {
-	return self.prepare(stageCommandDone, 0)
+func (selfConn *Conn) Prepare() (err error) {
+	return selfConn.prepare(stageCommandDone, 0)
 }
 
-func (self *Conn) prepare(stage int, flags int) (err error) {
-	for self.stage < stage {
-		switch self.stage {
+func (selfConn *Conn) prepare(stage int, flags int) (err error) {
+	for selfConn.stage < stage {
+		switch selfConn.stage {
 		case 0:
-			if self.isserver {
-				if err = self.handshakeServer(); err != nil {
+			if selfConn.isserver {
+				if err = selfConn.handshakeServer(); err != nil {
 					log.Printf("rtmp handshakeServer err: %v\n", err)
 					return
 				}
 			} else {
-				if err = self.handshakeClient(); err != nil {
+				if err = selfConn.handshakeClient(); err != nil {
 					log.Printf("rtmp handshakeClient err: %v\n", err)
 					return
 				}
 			}
 
 		case stageHandshakeDone:
-			if self.isserver {
-				if err = self.readConnect(); err != nil {
+			if selfConn.isserver {
+				if err = selfConn.readConnect(); err != nil {
 					log.Printf("rtmp readConnect err: %v\n", err)
 					return
 				}
 			} else {
 				if flags == prepareReading {
-					if err = self.connectPlay(); err != nil {
+					if err = selfConn.connectPlay(); err != nil {
 						log.Printf("rtmp connectPlay err: %v\n", err)
 						return
 					}
 				} else {
-					if err = self.connectPublish(); err != nil {
+					if err = selfConn.connectPublish(); err != nil {
 						log.Printf("rtmp connectPublish err: %v\n", err)
 						return
 					}
@@ -867,7 +889,7 @@ func (self *Conn) prepare(stage int, flags int) (err error) {
 
 		case stageCommandDone:
 			if flags == prepareReading {
-				if err = self.probe(); err != nil {
+				if err = selfConn.probe(); err != nil {
 					log.Printf("rtmp probe err: %v\n", err)
 					return
 				}
@@ -880,20 +902,20 @@ func (self *Conn) prepare(stage int, flags int) (err error) {
 	return
 }
 
-func (self *Conn) Streams() (streams []av.CodecData, err error) {
-	if err = self.prepare(stageCodecDataDone, prepareReading); err != nil {
+func (selfConn *Conn) Streams() (streams []av.CodecData, err error) {
+	if err = selfConn.prepare(stageCodecDataDone, prepareReading); err != nil {
 		return
 	}
-	streams = self.streams
+	streams = selfConn.streams
 	return
 }
 
-func (self *Conn) WritePacket(pkt av.Packet) (err error) {
-	if err = self.prepare(stageCodecDataDone, prepareWriting); err != nil {
+func (selfConn *Conn) WritePacket(pkt av.Packet) (err error) {
+	if err = selfConn.prepare(stageCodecDataDone, prepareWriting); err != nil {
 		return
 	}
 
-	for _, streams := range self.stream {
+	for _, streams := range selfConn.stream {
 		if int(pkt.Idx) == streams.Idx {
 			if streams.CodecData == nil {
 				return fmt.Errorf("CodecData idx %v is nil", pkt.Idx)
@@ -905,7 +927,7 @@ func (self *Conn) WritePacket(pkt av.Packet) (err error) {
 					fmt.Println("rtmp: WritePacket", pkt.Idx, pkt.Time, pkt.CompositionTime)
 				}
 
-				if err = self.writeAVTag(tag, int32(timestamp)); err != nil {
+				if err = selfConn.writeAVTag(tag, int32(timestamp)); err != nil {
 					return
 				}
 			}
@@ -915,27 +937,27 @@ func (self *Conn) WritePacket(pkt av.Packet) (err error) {
 	return
 }
 
-func (self *Conn) WriteTrailer() (err error) {
-	if err = self.flushWrite(); err != nil {
+func (selfConn *Conn) WriteTrailer() (err error) {
+	if err = selfConn.flushWrite(); err != nil {
 		return
 	}
 	return
 }
 
-func (self *Conn) WriteStreamsHeader(streams []*rawmedia.Stream) (err error) {
-	self.stream = streams
+func (selfConn *Conn) WriteStreamsHeader(streams []*rawmedia.Stream) (err error) {
+	selfConn.stream = streams
 	var Codecstreams []av.CodecData
-	for _, stream := range self.stream {
+	for _, stream := range selfConn.stream {
 		if stream.CodecData != nil {
 			Codecstreams = append(Codecstreams, stream.CodecData)
 		}
 	}
-	err = self.WriteHeader(Codecstreams)
+	err = selfConn.WriteHeader(Codecstreams)
 	return err
 }
 
-func (self *Conn) WriteHeader(streams []av.CodecData) (err error) {
-	if err = self.prepare(stageCommandDone, prepareWriting); err != nil {
+func (selfConn *Conn) WriteHeader(streams []av.CodecData) (err error) {
+	if err = selfConn.prepare(stageCommandDone, prepareWriting); err != nil {
 		log.Printf("rtmp prepare err: %v\n", err)
 		return
 	}
@@ -946,11 +968,11 @@ func (self *Conn) WriteHeader(streams []av.CodecData) (err error) {
 		log.Printf("rtmp NewMetaArrayByStreams err: %v\n", err)
 		return
 	}
-	if err = self.writeDataMsg(4, self.avmsgsid, "@setDataFrame", "onMetaData", metaArray); err != nil {
+	if err = selfConn.writeDataMsg(4, selfConn.avmsgsid, "@setDataFrame", "onMetaData", metaArray); err != nil {
 		log.Printf("rtmp writeDataMsg err: %v\n", err)
 		return
 	}
-	if err = self.flushWrite(); err != nil {
+	if err = selfConn.flushWrite(); err != nil {
 		return
 	}
 
@@ -964,90 +986,90 @@ func (self *Conn) WriteHeader(streams []av.CodecData) (err error) {
 			return
 		}
 		if ok {
-			if err = self.writeAVTag(tag, 0); err != nil {
+			if err = selfConn.writeAVTag(tag, 0); err != nil {
 				log.Printf("rtmp writeAVTag err: %v\n", err)
 				return
 			}
 		}
 	}
 
-	self.streams = streams
-	self.stage++
+	selfConn.streams = streams
+	selfConn.stage++
 	return
 }
 
-func (self *Conn) tmpwbuf(n int) []byte {
-	if len(self.writebuf) < n {
-		self.writebuf = make([]byte, n)
+func (selfConn *Conn) tmpwbuf(n int) []byte {
+	if len(selfConn.writebuf) < n {
+		selfConn.writebuf = make([]byte, n)
 	}
-	return self.writebuf
+	return selfConn.writebuf
 }
 
-func (self *Conn) writeSetChunkSize(size int) (err error) {
-	self.writeMaxChunkSize = size
-	b := self.tmpwbuf(chunkHeaderLength + 4)
-	n := self.fillChunkHeader(b, 2, 0, msgtypeidSetChunkSize, 0, 4)
+func (selfConn *Conn) writeSetChunkSize(size int) (err error) {
+	selfConn.writeMaxChunkSize = size
+	b := selfConn.tmpwbuf(chunkHeaderLength + 4)
+	n := selfConn.fillChunkHeader(b, 2, 0, msgtypeidSetChunkSize, 0, 4)
 	pio.PutU32BE(b[n:], uint32(size))
 	n += 4
-	_, err = self.bufw.Write(b[:n])
+	_, err = selfConn.bufw.Write(b[:n])
 	return
 }
 
-func (self *Conn) writeAck(seqnum uint32) (err error) {
-	b := self.tmpwbuf(chunkHeaderLength + 4)
-	n := self.fillChunkHeader(b, 2, 0, msgtypeidAck, 0, 4)
+func (selfConn *Conn) writeAck(seqnum uint32) (err error) {
+	b := selfConn.tmpwbuf(chunkHeaderLength + 4)
+	n := selfConn.fillChunkHeader(b, 2, 0, msgtypeidAck, 0, 4)
 	pio.PutU32BE(b[n:], seqnum)
 	n += 4
-	_, err = self.bufw.Write(b[:n])
+	_, err = selfConn.bufw.Write(b[:n])
 	return
 }
 
-func (self *Conn) writeWindowAckSize(size uint32) (err error) {
-	b := self.tmpwbuf(chunkHeaderLength + 4)
-	n := self.fillChunkHeader(b, 2, 0, msgtypeidWindowAckSize, 0, 4)
+func (selfConn *Conn) writeWindowAckSize(size uint32) (err error) {
+	b := selfConn.tmpwbuf(chunkHeaderLength + 4)
+	n := selfConn.fillChunkHeader(b, 2, 0, msgtypeidWindowAckSize, 0, 4)
 	pio.PutU32BE(b[n:], size)
 	n += 4
-	_, err = self.bufw.Write(b[:n])
+	_, err = selfConn.bufw.Write(b[:n])
 	return
 }
 
-func (self *Conn) writeSetPeerBandwidth(acksize uint32, limittype uint8) (err error) {
-	b := self.tmpwbuf(chunkHeaderLength + 5)
-	n := self.fillChunkHeader(b, 2, 0, msgtypeidSetPeerBandwidth, 0, 5)
+func (selfConn *Conn) writeSetPeerBandwidth(acksize uint32, limittype uint8) (err error) {
+	b := selfConn.tmpwbuf(chunkHeaderLength + 5)
+	n := selfConn.fillChunkHeader(b, 2, 0, msgtypeidSetPeerBandwidth, 0, 5)
 	pio.PutU32BE(b[n:], acksize)
 	n += 4
 	b[n] = limittype
 	n++
-	_, err = self.bufw.Write(b[:n])
+	_, err = selfConn.bufw.Write(b[:n])
 	return
 }
 
-func (self *Conn) writeCommandMsg(csid, msgsid uint32, args ...interface{}) (err error) {
-	return self.writeAMF0Msg(msgtypeidCommandMsgAMF0, csid, msgsid, args...)
+func (selfConn *Conn) writeCommandMsg(csid, msgsid uint32, args ...interface{}) (err error) {
+	return selfConn.writeAMF0Msg(msgtypeidCommandMsgAMF0, csid, msgsid, args...)
 }
 
-func (self *Conn) writeDataMsg(csid, msgsid uint32, args ...interface{}) (err error) {
-	return self.writeAMF0Msg(msgtypeidDataMsgAMF0, csid, msgsid, args...)
+func (selfConn *Conn) writeDataMsg(csid, msgsid uint32, args ...interface{}) (err error) {
+	return selfConn.writeAMF0Msg(msgtypeidDataMsgAMF0, csid, msgsid, args...)
 }
 
-func (self *Conn) writeAMF0Msg(msgtypeid uint8, csid, msgsid uint32, args ...interface{}) (err error) {
+func (selfConn *Conn) writeAMF0Msg(msgtypeid uint8, csid, msgsid uint32, args ...interface{}) (err error) {
 	size := 0
 	for _, arg := range args {
 		size += flvio.LenAMF0Val(arg)
 	}
 
-	b := self.tmpwbuf(chunkHeaderLength + size)
-	n := self.fillChunkHeader(b, csid, 0, msgtypeid, msgsid, size)
+	b := selfConn.tmpwbuf(chunkHeaderLength + size)
+	n := selfConn.fillChunkHeader(b, csid, 0, msgtypeid, msgsid, size)
 	for _, arg := range args {
 		n += flvio.FillAMF0Val(b[n:], arg)
 	}
 
-	_, err = self.bufw.Write(b[:n])
+	_, err = selfConn.bufw.Write(b[:n])
 	return
 }
 
-func (self *Conn) writeAVTag(tag flvio.Tag, ts int32) (err error) {
-	if self.netconn == nil {
+func (selfConn *Conn) writeAVTag(tag flvio.Tag, ts int32) (err error) {
+	if selfConn.netconn == nil {
 		return fmt.Errorf("netconn is nil")
 	}
 	var msgtypeid uint8
@@ -1071,13 +1093,13 @@ func (self *Conn) writeAVTag(tag flvio.Tag, ts int32) (err error) {
 		actualChunkHeaderLength += 4
 	}
 
-	b := self.tmpwbuf(actualChunkHeaderLength + flvio.MaxTagSubHeaderLength)
+	b := selfConn.tmpwbuf(actualChunkHeaderLength + flvio.MaxTagSubHeaderLength)
 	hdrlen := tag.FillHeader(b[actualChunkHeaderLength:])
-	self.fillChunkHeader(b, csid, ts, msgtypeid, self.avmsgsid, hdrlen+len(data))
+	selfConn.fillChunkHeader(b, csid, ts, msgtypeid, selfConn.avmsgsid, hdrlen+len(data))
 	n := hdrlen + actualChunkHeaderLength
 
-	if n+len(data) > self.writeMaxChunkSize {
-		if err = self.writeSetChunkSize(n + len(data)); err != nil {
+	if n+len(data) > selfConn.writeMaxChunkSize {
+		if err = selfConn.writeSetChunkSize(n + len(data)); err != nil {
 			return
 		}
 	}
@@ -1086,41 +1108,41 @@ func (self *Conn) writeAVTag(tag flvio.Tag, ts int32) (err error) {
 		return
 	}
 
-	if _, err = self.bufw.Write(b[:n]); err != nil {
+	if _, err = selfConn.bufw.Write(b[:n]); err != nil {
 		return
 	}
-	_, err = self.bufw.Write(data)
+	_, err = selfConn.bufw.Write(data)
 	return
 }
 
-func (self *Conn) writeStreamBegin(msgsid uint32) (err error) {
-	b := self.tmpwbuf(chunkHeaderLength + 6)
-	n := self.fillChunkHeader(b, 2, 0, msgtypeidUserControl, 0, 6)
+func (selfConn *Conn) writeStreamBegin(msgsid uint32) (err error) {
+	b := selfConn.tmpwbuf(chunkHeaderLength + 6)
+	n := selfConn.fillChunkHeader(b, 2, 0, msgtypeidUserControl, 0, 6)
 	pio.PutU16BE(b[n:], eventtypeStreamBegin)
 	n += 2
 	pio.PutU32BE(b[n:], msgsid)
 	n += 4
-	_, err = self.bufw.Write(b[:n])
+	_, err = selfConn.bufw.Write(b[:n])
 	return
 }
 
-func (self *Conn) writeSetBufferLength(msgsid uint32, timestamp uint32) (err error) {
-	b := self.tmpwbuf(chunkHeaderLength + 10)
-	n := self.fillChunkHeader(b, 2, 0, msgtypeidUserControl, 0, 10)
+func (selfConn *Conn) writeSetBufferLength(msgsid uint32, timestamp uint32) (err error) {
+	b := selfConn.tmpwbuf(chunkHeaderLength + 10)
+	n := selfConn.fillChunkHeader(b, 2, 0, msgtypeidUserControl, 0, 10)
 	pio.PutU16BE(b[n:], eventtypeSetBufferLength)
 	n += 2
 	pio.PutU32BE(b[n:], msgsid)
 	n += 4
 	pio.PutU32BE(b[n:], timestamp)
 	n += 4
-	_, err = self.bufw.Write(b[:n])
+	_, err = selfConn.bufw.Write(b[:n])
 	return
 }
 
 const chunkHeaderLength = 12
 const FlvTimestampMax = 0xFFFFFF
 
-func (self *Conn) fillChunkHeader(b []byte, csid uint32, timestamp int32, msgtypeid uint8, msgsid uint32, msgdatalen int) (n int) {
+func (selfConn *Conn) fillChunkHeader(b []byte, csid uint32, timestamp int32, msgtypeid uint8, msgsid uint32, msgdatalen int) (n int) {
 	//  0                   1                   2                   3
 	//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 	// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -1159,17 +1181,17 @@ func (self *Conn) fillChunkHeader(b []byte, csid uint32, timestamp int32, msgtyp
 	return
 }
 
-func (self *Conn) flushWrite() (err error) {
-	if err = self.bufw.Flush(); err != nil {
+func (selfConn *Conn) flushWrite() (err error) {
+	if err = selfConn.bufw.Flush(); err != nil {
 		return
 	}
 	return
 }
 
-func (self *Conn) readChunk() (err error) {
-	b := self.readbuf
+func (selfConn *Conn) readChunk() (err error) {
+	b := selfConn.readbuf
 	n := 0
-	if _, err = io.ReadFull(self.bufr, b[:1]); err != nil {
+	if _, err = io.ReadFull(selfConn.bufr, b[:1]); err != nil {
 		log.Printf("io ReadFull err: %v\n", err)
 		return
 	}
@@ -1185,23 +1207,23 @@ func (self *Conn) readChunk() (err error) {
 	switch csid {
 	default: // Chunk basic header 1
 	case 0: // Chunk basic header 2
-		if _, err = io.ReadFull(self.bufr, b[:1]); err != nil {
+		if _, err = io.ReadFull(selfConn.bufr, b[:1]); err != nil {
 			return
 		}
 		n += 1
 		csid = uint32(b[0]) + 64
 	case 1: // Chunk basic header 3
-		if _, err = io.ReadFull(self.bufr, b[:2]); err != nil {
+		if _, err = io.ReadFull(selfConn.bufr, b[:2]); err != nil {
 			return
 		}
 		n += 2
 		csid = uint32(pio.U16BE(b)) + 64
 	}
 
-	cs := self.readcsmap[csid]
+	cs := selfConn.readcsmap[csid]
 	if cs == nil {
 		cs = &chunkStream{}
-		self.readcsmap[csid] = cs
+		selfConn.readcsmap[csid] = cs
 	}
 
 	var timestamp uint32
@@ -1224,7 +1246,7 @@ func (self *Conn) readChunk() (err error) {
 			return
 		}
 		h := b[:11]
-		if _, err = io.ReadFull(self.bufr, h); err != nil {
+		if _, err = io.ReadFull(selfConn.bufr, h); err != nil {
 			return
 		}
 		n += len(h)
@@ -1234,7 +1256,7 @@ func (self *Conn) readChunk() (err error) {
 		cs.msgtypeid = h[6]
 		cs.msgsid = pio.U32LE(h[7:11])
 		if timestamp == 0xffffff {
-			if _, err = io.ReadFull(self.bufr, b[:4]); err != nil {
+			if _, err = io.ReadFull(selfConn.bufr, b[:4]); err != nil {
 				return
 			}
 			n += 4
@@ -1261,7 +1283,7 @@ func (self *Conn) readChunk() (err error) {
 			return
 		}
 		h := b[:7]
-		if _, err = io.ReadFull(self.bufr, h); err != nil {
+		if _, err = io.ReadFull(selfConn.bufr, h); err != nil {
 			return
 		}
 		n += len(h)
@@ -1270,7 +1292,7 @@ func (self *Conn) readChunk() (err error) {
 		cs.msgdatalen = pio.U24BE(h[3:6])
 		cs.msgtypeid = h[6]
 		if timestamp == 0xffffff {
-			if _, err = io.ReadFull(self.bufr, b[:4]); err != nil {
+			if _, err = io.ReadFull(selfConn.bufr, b[:4]); err != nil {
 				return
 			}
 			n += 4
@@ -1296,14 +1318,14 @@ func (self *Conn) readChunk() (err error) {
 			return
 		}
 		h := b[:3]
-		if _, err = io.ReadFull(self.bufr, h); err != nil {
+		if _, err = io.ReadFull(selfConn.bufr, h); err != nil {
 			return
 		}
 		n += len(h)
 		cs.msghdrtype = msghdrtype
 		timestamp = pio.U24BE(h[0:3])
 		if timestamp == 0xffffff {
-			if _, err = io.ReadFull(self.bufr, b[:4]); err != nil {
+			if _, err = io.ReadFull(selfConn.bufr, b[:4]); err != nil {
 				return
 			}
 			n += 4
@@ -1321,7 +1343,7 @@ func (self *Conn) readChunk() (err error) {
 			switch cs.msghdrtype {
 			case 0:
 				if cs.hastimeext {
-					if _, err = io.ReadFull(self.bufr, b[:4]); err != nil {
+					if _, err = io.ReadFull(selfConn.bufr, b[:4]); err != nil {
 						return
 					}
 					n += 4
@@ -1330,7 +1352,7 @@ func (self *Conn) readChunk() (err error) {
 				}
 			case 1, 2:
 				if cs.hastimeext {
-					if _, err = io.ReadFull(self.bufr, b[:4]); err != nil {
+					if _, err = io.ReadFull(selfConn.bufr, b[:4]); err != nil {
 						return
 					}
 					n += 4
@@ -1349,12 +1371,12 @@ func (self *Conn) readChunk() (err error) {
 	}
 
 	size := int(cs.msgdataleft)
-	if size > self.readMaxChunkSize {
-		size = self.readMaxChunkSize
+	if size > selfConn.readMaxChunkSize {
+		size = selfConn.readMaxChunkSize
 	}
 	off := cs.msgdatalen - cs.msgdataleft
 	buf := cs.msgdata[off : int(off)+size]
-	if _, err = io.ReadFull(self.bufr, buf); err != nil {
+	if _, err = io.ReadFull(selfConn.bufr, buf); err != nil {
 		return
 	}
 	n += len(buf)
@@ -1364,6 +1386,8 @@ func (self *Conn) readChunk() (err error) {
 		fmt.Printf("rtmp: chunk msgsid=%d msgtypeid=%d msghdrtype=%d len=%d left=%d\n",
 			cs.msgsid, cs.msgtypeid, cs.msghdrtype, cs.msgdatalen, cs.msgdataleft)
 	}
+	/* log.Printf("----> rtmp: chunk msgsid=%d msgtypeid=%d msghdrtype=%d len=%d left=%d\n",
+	cs.msgsid, cs.msgtypeid, cs.msghdrtype, cs.msgdatalen, cs.msgdataleft) */
 
 	if cs.msgdataleft == 0 {
 		if Debug {
@@ -1371,23 +1395,23 @@ func (self *Conn) readChunk() (err error) {
 			fmt.Print(hex.Dump(cs.msgdata))
 		}
 
-		if err = self.handleMsg(cs.timenow, cs.msgsid, cs.msgtypeid, cs.msgdata); err != nil {
+		if err = selfConn.handleMsg(cs.timenow, cs.msgsid, cs.msgtypeid, cs.msgdata); err != nil {
 			return
 		}
 	}
 
-	self.ackn += uint32(n)
-	if self.readAckSize != 0 && self.ackn > self.readAckSize {
-		if err = self.writeAck(self.ackn); err != nil {
+	selfConn.ackn += uint32(n)
+	if selfConn.readAckSize != 0 && selfConn.ackn > selfConn.readAckSize {
+		if err = selfConn.writeAck(selfConn.ackn); err != nil {
 			return
 		}
-		self.ackn = 0
+		selfConn.ackn = 0
 	}
 
 	return
 }
 
-func (self *Conn) handleCommandMsgAMF0(b []byte) (n int, err error) {
+func (selfConn *Conn) handleCommandMsgAMF0(b []byte) (n int, err error) {
 	var name, transid, obj interface{}
 	var size int
 
@@ -1405,38 +1429,38 @@ func (self *Conn) handleCommandMsgAMF0(b []byte) (n int, err error) {
 	n += size
 
 	var ok bool
-	if self.commandname, ok = name.(string); !ok {
+	if selfConn.commandname, ok = name.(string); !ok {
 		err = fmt.Errorf("rtmp: CommandMsgAMF0 command is not string")
 		return
 	}
-	self.commandtransid, _ = transid.(float64)
-	self.commandobj, _ = obj.(flvio.AMFMap)
-	self.commandparams = []interface{}{}
+	selfConn.commandtransid, _ = transid.(float64)
+	selfConn.commandobj, _ = obj.(flvio.AMFMap)
+	selfConn.commandparams = []interface{}{}
 
 	for n < len(b) {
 		if obj, size, err = flvio.ParseAMF0Val(b[n:]); err != nil {
 			return
 		}
 		n += size
-		self.commandparams = append(self.commandparams, obj)
+		selfConn.commandparams = append(selfConn.commandparams, obj)
 	}
 	if n < len(b) {
 		err = fmt.Errorf("rtmp: CommandMsgAMF0 left bytes=%d", len(b)-n)
 		return
 	}
 
-	self.gotcommand = true
+	selfConn.gotcommand = true
 	return
 }
 
-func (self *Conn) handleMsg(timestamp uint32, msgsid uint32, msgtypeid uint8, msgdata []byte) (err error) {
-	self.msgdata = msgdata
-	self.msgtypeid = msgtypeid
-	self.timestamp = timestamp
+func (selfConn *Conn) handleMsg(timestamp uint32, msgsid uint32, msgtypeid uint8, msgdata []byte) (err error) {
+	selfConn.msgdata = msgdata
+	selfConn.msgtypeid = msgtypeid
+	selfConn.timestamp = timestamp
 
 	switch msgtypeid {
 	case msgtypeidCommandMsgAMF0:
-		if _, err = self.handleCommandMsgAMF0(msgdata); err != nil {
+		if _, err = selfConn.handleCommandMsgAMF0(msgdata); err != nil {
 			return
 		}
 
@@ -1446,7 +1470,7 @@ func (self *Conn) handleMsg(timestamp uint32, msgsid uint32, msgtypeid uint8, ms
 			return
 		}
 		// skip first byte
-		if _, err = self.handleCommandMsgAMF0(msgdata[1:]); err != nil {
+		if _, err = selfConn.handleCommandMsgAMF0(msgdata[1:]); err != nil {
 			return
 		}
 
@@ -1455,7 +1479,7 @@ func (self *Conn) handleMsg(timestamp uint32, msgsid uint32, msgtypeid uint8, ms
 			err = fmt.Errorf("rtmp: short packet of UserControl")
 			return
 		}
-		self.eventtype = pio.U16BE(msgdata)
+		selfConn.eventtype = pio.U16BE(msgdata)
 
 	case msgtypeidDataMsgAMF0:
 		b := msgdata
@@ -1467,7 +1491,7 @@ func (self *Conn) handleMsg(timestamp uint32, msgsid uint32, msgtypeid uint8, ms
 				return
 			}
 			n += size
-			self.datamsgvals = append(self.datamsgvals, obj)
+			selfConn.datamsgvals = append(selfConn.datamsgvals, obj)
 		}
 		if n < len(b) {
 			err = fmt.Errorf("rtmp: DataMsgAMF0 left bytes=%d", len(b)-n)
@@ -1487,7 +1511,7 @@ func (self *Conn) handleMsg(timestamp uint32, msgsid uint32, msgtypeid uint8, ms
 			return
 		}
 		tag.Data = msgdata[n:]
-		self.avtag = tag
+		selfConn.avtag = tag
 
 	case msgtypeidAudioMsg:
 		if len(msgdata) == 0 {
@@ -1499,18 +1523,19 @@ func (self *Conn) handleMsg(timestamp uint32, msgsid uint32, msgtypeid uint8, ms
 			return
 		}
 		tag.Data = msgdata[n:]
-		self.avtag = tag
+		selfConn.avtag = tag
 
 	case msgtypeidSetChunkSize:
 		if len(msgdata) < 4 {
 			err = fmt.Errorf("rtmp: short packet of SetChunkSize")
 			return
 		}
-		self.readMaxChunkSize = int(pio.U32BE(msgdata))
+		selfConn.readMaxChunkSize = int(pio.U32BE(msgdata))
+		log.Printf("----> msgtypeid SetChunkSize (%d)", selfConn.readMaxChunkSize)
 		return
 	}
 
-	self.gotmsg = true
+	selfConn.gotmsg = true
 	return
 }
 
@@ -1594,7 +1619,7 @@ func hsCreate2(p []byte, key []byte) {
 	copy(p[gap:], digest)
 }
 
-func (self *Conn) handshakeClient() (err error) {
+func (selfConn *Conn) handshakeClient() (err error) {
 	var random [(1 + 1536*2) * 2]byte
 
 	C0C1C2 := random[:1536*2+1]
@@ -1613,15 +1638,15 @@ func (self *Conn) handshakeClient() (err error) {
 	//hsCreate01(C0C1, hsClientFullKey)
 
 	// > C0C1
-	if _, err = self.bufw.Write(C0C1); err != nil {
+	if _, err = selfConn.bufw.Write(C0C1); err != nil {
 		return
 	}
-	if err = self.bufw.Flush(); err != nil {
+	if err = selfConn.bufw.Flush(); err != nil {
 		return
 	}
 
 	// < S0S1S2
-	if _, err = io.ReadFull(self.bufr, S0S1S2); err != nil {
+	if _, err = io.ReadFull(selfConn.bufr, S0S1S2); err != nil {
 		return
 	}
 
@@ -1636,15 +1661,15 @@ func (self *Conn) handshakeClient() (err error) {
 	}
 
 	// > C2
-	if _, err = self.bufw.Write(C2); err != nil {
+	if _, err = selfConn.bufw.Write(C2); err != nil {
 		return
 	}
 
-	self.stage++
+	selfConn.stage++
 	return
 }
 
-func (self *Conn) handshakeServer() (err error) {
+func (selfConn *Conn) handshakeServer() (err error) {
 	var random [(1 + 1536*2) * 2]byte
 
 	C0C1C2 := random[:1536*2+1]
@@ -1660,7 +1685,7 @@ func (self *Conn) handshakeServer() (err error) {
 	S2 := S0S1S2[1536+1:]
 
 	// < C0C1
-	if _, err = io.ReadFull(self.bufr, C0C1); err != nil {
+	if _, err = io.ReadFull(selfConn.bufr, C0C1); err != nil {
 		return
 	}
 	if C0[0] != 3 {
@@ -1690,19 +1715,19 @@ func (self *Conn) handshakeServer() (err error) {
 	}
 
 	// > S0S1S2
-	if _, err = self.bufw.Write(S0S1S2); err != nil {
+	if _, err = selfConn.bufw.Write(S0S1S2); err != nil {
 		return
 	}
-	if err = self.bufw.Flush(); err != nil {
+	if err = selfConn.bufw.Flush(); err != nil {
 		return
 	}
 
 	// < C2
-	if _, err = io.ReadFull(self.bufr, C2); err != nil {
+	if _, err = io.ReadFull(selfConn.bufr, C2); err != nil {
 		return
 	}
 
-	self.stage++
+	selfConn.stage++
 	return
 }
 
@@ -1711,8 +1736,8 @@ type closeConn struct {
 	waitclose chan bool
 }
 
-func (self closeConn) Close() error {
-	self.waitclose <- true
+func (selfConn closeConn) Close() error {
+	selfConn.waitclose <- true
 	return nil
 }
 
